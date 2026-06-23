@@ -2,7 +2,7 @@
 # fed_send.sh <session> <ABSOLUTE-msgfile> — relay a brief into a tmux agent, robustly.
 #   - injects a unique [[FED-…]] nonce so fed_read can find the exact reply
 #   - bracketed-paste (keeps the multiline brief literal in the composer)
-#   - verifies the composer staged it (works for BOTH the Claude and Codex TUIs)
+#   - verifies the composer staged it by TUI paste chrome or a trailing nonce marker
 #   - sends Enter as a SEPARATE keystroke (never embed Enter in the paste)
 #   - on failure: clears the staged buffer and exits 1 (so a retry can't double-paste)
 # STDOUT = the bare nonce (capture it; pass to fed_read.py --nonce). Diagnostics -> STDERR.
@@ -35,12 +35,17 @@ trap cleanup EXIT
 
 printf '[[%s]]\n\n' "$nonce" > "$tmp"
 cat "$F" >> "$tmp"
+printf '\n\n[[%s]]\n' "$nonce" >> "$tmp"
 
 tmux load-buffer -b "$buf" "$tmp"
 tmux paste-buffer -t "$S" -b "$buf" -p -d
 sleep 0.7
 
-pane="$(tmux capture-pane -t "$S" -p -S -12 2>/dev/null)"
+capture_lines="${FED_SEND_CAPTURE_LINES:-200}"
+case "$capture_lines" in
+  ''|*[!0-9]*) capture_lines=200 ;;
+esac
+pane="$(tmux capture-pane -t "$S" -p -S "-$capture_lines" 2>/dev/null)"
 staged=0
 printf '%s' "$pane" | grep -qiE 'Pasted (text|Content)|paste again to expand' && staged=1   # Claude TUI chrome
 printf '%s' "$pane" | grep -qF "[[$nonce]]"                                   && staged=1   # any TUI: nonce visible

@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
-# fed_update_check.sh [--apply] — check/update the installed Federate skill.
+# fed_update_check.sh [--apply] [--force] — check/update the installed Federate skill.
 #
-# Default: print UP_TO_DATE or UPDATE_AVAILABLE and exit without changing files.
+# Default: print UP_TO_DATE, UPDATE_AVAILABLE, or LOCAL_DIRTY and exit without changing files.
 # --apply: fetch the latest payload for the recorded source/ref and update the
 # installed skill directory in place. Restart/refresh the host agent afterwards.
 set -euo pipefail
 
 ACTION="check"
-if [ "${1:-}" = "--apply" ]; then
-  ACTION="apply"
+FORCE="0"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --apply) ACTION="apply" ;;
+    --force) FORCE="1" ;;
+    *) echo "usage: fed_update_check.sh [--apply] [--force]" >&2; exit 2 ;;
+  esac
   shift
-fi
-[ "$#" -eq 0 ] || { echo "usage: fed_update_check.sh [--apply]" >&2; exit 2; }
+done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 SKILL_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd)"
@@ -90,7 +94,18 @@ if [ "$INSTALLED" = "$LATEST" ] && [ "$DIRTY" != "true" ]; then
   exit 0
 fi
 
-echo "UPDATE_AVAILABLE installed=$INSTALLED latest=$LATEST ref=$REF source=$SOURCE dirty=$DIRTY"
+if [ "$DIRTY" = "true" ]; then
+  stale="false"
+  [ "$INSTALLED" != "$LATEST" ] && stale="true"
+  echo "LOCAL_DIRTY installed=$INSTALLED latest=$LATEST stale=$stale ref=$REF source=$SOURCE"
+  if [ "$ACTION" != "apply" ]; then
+    exit 0
+  fi
+  [ "$FORCE" = "1" ] || die "installed payload is marked dirty; ask the operator whether to proceed, then rerun with --apply --force to overwrite it."
+  echo "OVERWRITING_DIRTY installed=$INSTALLED latest=$LATEST stale=$stale ref=$REF source=$SOURCE"
+else
+  echo "UPDATE_AVAILABLE installed=$INSTALLED latest=$LATEST ref=$REF source=$SOURCE dirty=$DIRTY"
+fi
 
 if [ "$ACTION" != "apply" ]; then
   exit 0

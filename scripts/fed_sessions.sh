@@ -2,14 +2,13 @@
 # fed_sessions.sh — ensure tmux peer-agent sessions exist.
 #
 # By default this reuses or creates every installed peer among:
-#   claude-*  -> claude
-#   codex-*   -> codex
+#   claude-*  -> IS_SANDBOX=1 claude --dangerously-skip-permissions
+#   codex-*   -> codex --dangerously-bypass-approvals-and-sandbox
 #   hermes-*  -> hermes --cli --yolo
 #
 # Override peers with FED_AGENTS=claude,codex or positional args:
 #   fed_sessions.sh claude codex
 #
-# Set FEDERATE_UNSAFE=1 to use bypass peer commands for Claude/Codex in an external sandbox.
 # Override launch commands with FED_CLAUDE_CMD, FED_CODEX_CMD, FED_HERMES_CMD.
 # Prints FEDERATE_DIR=... plus <AGENT>_SESSION=... for the caller to consume.
 set -euo pipefail
@@ -41,15 +40,12 @@ agent_cmd() {
   case "$1" in
     claude)
       if [ -n "${FED_CLAUDE_CMD:-}" ]; then echo "$FED_CLAUDE_CMD"
-      elif [ "${FEDERATE_UNSAFE:-0}" = "1" ]; then echo "IS_SANDBOX=1 claude --dangerously-skip-permissions"
-      else echo "claude"; fi ;;
+      else echo "IS_SANDBOX=1 claude --dangerously-skip-permissions"; fi ;;
     codex)
       if [ -n "${FED_CODEX_CMD:-}" ]; then echo "$FED_CODEX_CMD"
-      elif [ "${FEDERATE_UNSAFE:-0}" = "1" ]; then echo "codex --dangerously-bypass-approvals-and-sandbox"
-      else echo "codex"; fi ;;
+      else echo "codex --dangerously-bypass-approvals-and-sandbox"; fi ;;
     hermes)
       if [ -n "${FED_HERMES_CMD:-}" ]; then echo "$FED_HERMES_CMD"
-      elif [ "${FEDERATE_UNSAFE:-0}" = "1" ]; then echo "hermes --cli --yolo"
       else echo "hermes --cli --yolo"; fi ;;
     *) return 1 ;;
   esac
@@ -84,11 +80,16 @@ next_name() {
 
 find_existing() {
   prefix="$1"
+  expected_cmd="$2"
   for s in $(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep "^${prefix}-" || true); do
     tag="$(tmux show-options -qv -t "$s" @federate_agent 2>/dev/null || true)"
     if [ "$tag" = "$prefix" ]; then
-      echo "$s"
-      return 0
+      stored_cmd="$(tmux show-options -qv -t "$s" @federate_cmd 2>/dev/null || true)"
+      if [ "$stored_cmd" = "$expected_cmd" ]; then
+        echo "$s"
+        return 0
+      fi
+      echo "IGNORED $s: managed session command changed; creating a fresh $prefix session" >&2
     fi
   done
   if [ "${FED_REUSE_UNMANAGED:-0}" = "1" ]; then
@@ -104,7 +105,7 @@ ensure_agent() {
     return 0
   }
 
-  existing="$(find_existing "$agent")"
+  existing="$(find_existing "$agent" "$cmd")"
   if [ -n "$existing" ]; then
     tmux resize-window -t "$existing" -x "$W" -y "$H" 2>/dev/null || true
     printf '%s_SESSION=%s\n' "$(printf '%s' "$agent" | tr '[:lower:]' '[:upper:]')" "$existing"
@@ -130,6 +131,7 @@ ensure_agent() {
   done
   [ -n "$name" ] || die "failed to create tmux session for $agent"
   tmux set-option -q -t "$name" @federate_agent "$agent" || true
+  tmux set-option -q -t "$name" @federate_cmd "$cmd" || true
   tmux send-keys -t "$name" "$cmd" Enter
   echo "CREATED $name with: $cmd (booting; wait for a live composer before first send)" >&2
   printf '%s_SESSION=%s\n' "$(printf '%s' "$agent" | tr '[:lower:]' '[:upper:]')" "$name"

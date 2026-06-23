@@ -41,32 +41,36 @@ One invocation means one complete federation iteration:
 4. Send to all peers independently before reading any peer.
 5. Cross-pollinate each peer with the other peers' verbatim replies.
 6. Collect cross-pollinated replies, including revised confidence.
-7. Score convergence confidence and synthesize the barycenter of the result.
-8. If convergence is not high enough, run another complete round without asking,
-   up to three rounds total for the iteration.
+7. Judge convergence confidence adaptively from the peer intelligence and
+   synthesize the barycenter of the result.
+8. If convergence is not high enough for the current bounded decision, run
+   another complete round without asking, up to three rounds total for the
+   iteration.
 9. Return the synthesis with a short convergence note, or advance one bounded
    step if the user delegated project-owner judgment.
 
 ## Modes
 
 - **Operator-HITL mode**: Default. The coordinator federates internally until
-  convergence is high enough or the three-round cap is reached, then returns the
-  synthesis to the user for discussion and decision.
+  convergence is high enough for the current bounded decision or the
+  three-round cap is reached, then returns the synthesis to the user for
+  discussion and decision.
 - **Delegated project-owner mode**: Use only after the human confirms the
   delegation handshake below. The coordinator emulates the human in the loop as
   a project-owner proxy, using the user's stated goals, preferences, risk
   tolerance, style, and prior thread context as steering evidence. The
   coordinator still advances step by step: run a full federation iteration,
-  choose the barycenter of the converged plan, execute only the next reversible
-  step, then federate the result before moving again. Do not stop for ordinary
-  project-owner choices when convergence is high. Stop only for hard gates,
-  unavailable peers, or unresolved blocking divergence after the three-round
-  cap.
+  choose the barycenter of the converged plan, execute only the next small
+  reversible step, then federate the result before moving again. Do not stop for
+  ordinary project-owner choices once the user has delegated. Stop only for hard
+  gates, unavailable peers, or unresolved blocking divergence after the
+  three-round cap.
 
 ### Delegation Handshake
 
 Before acting as delegated project-owner, get explicit human confirmation of
-one mode:
+one mode. Ask once, keep it A/B, record the answer in `relay_log.md`, and do not
+hassle the human again for ordinary project-owner choices:
 
 - **A. Plan-following proxy**: Confirm existing plan artifacts or thread plans
   exist. Summarize the plan, current project state, next logical step, and the
@@ -104,6 +108,17 @@ Interpret stdout:
   now or continue this invocation with the already-loaded skill instructions.
   Recommend refresh/restart because skill menus and `SKILL.md` contents can be
   cached by the host agent. Do not bootstrap peers until the operator chooses.
+- `LOCAL_DIRTY ...`: report that the installed payload came from a dirty source
+  or local development install. Ask the operator whether to abort the update or
+  overwrite the installed dirty payload. If the operator says proceed, run:
+
+  ```bash
+  /absolute/path/to/federate/scripts/fed_update_check.sh --apply --force
+  ```
+
+  Then stop and ask whether to refresh/restart or continue with the
+  already-loaded skill instructions. Do not use `--force` unless the operator
+  has explicitly chosen to proceed.
 - `ERROR ...`: report that freshness could not be verified and ask whether to
   continue with the installed copy or stop for manual update.
 
@@ -121,18 +136,19 @@ Use the `scripts/` directory next to this `SKILL.md`:
 /absolute/path/to/federate/scripts/fed_sessions.sh
 ```
 
-Defaults:
+Defaults are yolo/no-prompt for federation peers:
 
-- `claude-*`: `claude`
-- `codex-*`: `codex`
+- `claude-*`: `IS_SANDBOX=1 claude --dangerously-skip-permissions`
+- `codex-*`: `codex --dangerously-bypass-approvals-and-sandbox`
 - `hermes-*`: `hermes --cli --yolo`
 
 Runtime controls:
 
 - `FED_AGENTS=claude,codex` limits the runtime peer set; positional args work too: `fed_sessions.sh claude codex`. This is independent of where the skill is installed.
 - `FED_CLAUDE_CMD`, `FED_CODEX_CMD`, and `FED_HERMES_CMD` override launch commands.
-- `FED_HERMES_CMD='hermes --cli'` disables Hermes' default yolo launch if you want Hermes approval prompts.
-- `FEDERATE_UNSAFE=1` uses bypass defaults for Claude and Codex; only use this inside an external sandbox with no secrets or irreversible access. Hermes already defaults to `--yolo` for federation.
+- Use explicit `FED_*_CMD` overrides only when you intentionally want prompt mode
+  or a custom model/profile. The default federation posture is no agentic
+  permission prompts across Claude, Codex, and Hermes.
 - `FED_REUSE_UNMANAGED=1` allows reuse of pre-existing untagged `claude-*`, `codex-*`, or `hermes-*` sessions after you verify they are the intended peer sessions.
 - `FED_TMUX_WIDTH` and `FED_TMUX_HEIGHT` override the default wide panes.
 
@@ -175,6 +191,26 @@ Do not ask the operator whether another internal round is necessary. Judge it:
   for the current step, or after round 3 with the best high-confidence synthesis
   plus explicit residual tension.
 
+There is no fixed numeric threshold for "high enough." The coordinator has to
+judge sufficiency from the intelligence the peers produced. A result is high
+enough for the current bounded decision when the coordinator can defend all of
+these claims from the independent and cross-pollinated replies:
+
+- the peers converge on the same verdict, plan spine, or next small action;
+- each material objection has been accepted, answered, or narrowed to
+  non-blocking useful tension;
+- receipts and assumptions are shared enough that one peer's result is not
+  resting on a private fact the others rejected;
+- no peer has an unresolved blocker that would change the next bounded step;
+- confidence is stable or rising after cross-pollination, or any drop is
+  explained and non-blocking for the current step.
+
+For delegated project-owner mode, require absolute high convergence before
+moving: the next action must be small, reversible, within the A/B delegation,
+outside every hard gate, supported by verified receipts, and have an obvious
+undo or rollback path. If that is not true after three rounds, stop with the
+residual blocker instead of pretending to be confident.
+
 Measure convergence confidence from the substance, not the politeness:
 
 - agreement on the core verdict, next action, or plan spine;
@@ -183,10 +219,13 @@ Measure convergence confidence from the substance, not the politeness:
 - whether proposed next steps collapse to the same barycenter;
 - whether confidence rose, stayed flat, or fell across rounds.
 
-Every operator-facing federation result must include a short convergence note.
-Do not force a rigid response template, but always include: confidence level or
-score, rounds in this iteration, trend when more than one round ran, and the
-main residual delta if any.
+Every federation result, including each delegated step result, must include a
+short convergence note. Do not force a rigid response template, but always
+include: confidence level or score, rounds in this iteration, why that
+confidence is high enough or not high enough for the bounded decision, trend
+when more than one round ran, and the main residual delta if any. Preserve peer
+numeric scores when peers provide them, but do not force a universal numeric
+scale.
 
 ## Confidence Poll
 
@@ -214,6 +253,8 @@ verbatim with their arguments. Ask the receiving peer to revise or reaffirm:
 Coordinator synthesis must report confidence as a cross-agent measurement, not
 as a simple average. Weight receipt quality, assumption agreement, blocker
 severity, role confidence, and whether confidence rose or fell after crossing.
+The coordinator decides "high enough" by applying the sufficiency gate above to
+the current bounded step, not by averaging peer scores.
 
 ## Round Procedure
 
@@ -308,22 +349,24 @@ Digest the independent and cross-show replies for the operator:
 - The barycenter: the smallest next plan or action that preserves the
   converged commitments while keeping useful orthogonal tension visible.
 
-`LOCK` requires every peer to accept the other peers' positions with no genuine
-disagreement and to state the same one-line verdict. Flat or falling
+`LOCK` is the strongest label, not the normal stopping requirement. Use it only
+when every peer accepts the other peers' positions with no genuine disagreement
+and states the same one-line verdict or next action. Flat or falling
 convergence, unresolved blocking deltas, or conflicting operator questions means
 run another complete round until the three-round cap. After the cap, return the
-best high-confidence synthesis, preserve healthy orthogonal disagreement, and
-identify any blocking choice that truly cannot be made by the coordinator.
+best synthesis, preserve healthy orthogonal disagreement, and identify any
+blocking choice that truly cannot be made by the coordinator.
 
 ### 4. Operator Decides
 
 In Operator-HITL mode, bring the synthesis to the operator and stop. The next
 iteration starts from the operator's decision.
 
-In delegated project-owner mode, do not stop after a high-confidence synthesis.
-Choose the barycenter, execute the next bounded reversible step, then run a new
-federation iteration over the result before advancing again. Preserve the user's
-standing constraints and the hard gates below.
+In delegated project-owner mode, do not stop after an absolute
+high-convergence synthesis. Choose the barycenter, execute the next bounded
+reversible step, then run a new federation iteration over the result before
+advancing again. Preserve the user's standing constraints and the hard gates
+below.
 
 ## Build Rails
 
@@ -372,12 +415,16 @@ For result-bearing evaluations, pre-register methodology, thresholds, and verdic
 - Use transcripts/state as the clean source. Tmux scrollback is only for liveness because TUI redraws and wrapping corrupt the text.
 - Use nonces for every read. Claude transcript search can otherwise select the coordinator's own Claude session; Codex and Hermes can also have multiple active sessions.
 - `fed_read.py codex` returns Codex `final_answer` blocks when phase tags exist; commentary is not the cross-show source.
-- `fed_read.py` requires a nonce and matches the exact `[[FED...]]` marker inserted as the first non-empty line. If the nonce is found but no assistant/final answer is available yet, it exits nonzero; wait and re-read. `--unsafe-latest` exists only for manual debugging.
+- `fed_read.py` requires a nonce and matches the exact `[[FED...]]` marker inserted by `fed_send.sh`. If the nonce is found but no assistant/final answer is available yet, it exits nonzero; wait and re-read. `--unsafe-latest` exists only for manual debugging.
 - `fed_read.py hermes` searches `${HERMES_HOME:-~/.hermes}/state.db` and profile `state.db` files for the nonce marker in an active user message, then returns assistant messages from that same session until the next user turn.
-- `fed_send.sh` uses bracketed paste, verifies that text reached the composer, and sends Enter separately. If verification fails, it clears the staged buffer and exits nonzero.
+- `fed_send.sh` uses bracketed paste, places the nonce at the top and bottom of
+  the brief for reliable composer verification, and sends Enter separately. If
+  verification fails, it clears the staged buffer and exits nonzero.
 - `fed_wait.sh` is a liveness hint, not proof of completion. Some agents go pane-idle while sub-work is still running; the nonce read decides whether a real answer has landed.
 - `fed_update_check.sh` compares `.federate-install.json` to the recorded
   source/ref and can update the installed payload in place with `--apply`.
+  Dirty installed payloads report `LOCAL_DIRTY` and require operator-approved
+  `--apply --force`.
 
 ## Ledger
 

@@ -119,6 +119,15 @@ the recorded source/ref, then asks whether to refresh/restart the agent session
 or continue with the already-loaded copy. Refresh is recommended because host
 agents can cache skill menus and `SKILL.md` contents.
 
+If the checker reports `LOCAL_DIRTY`, the installed payload came from a dirty
+source or local development install. The coordinator should report that plainly
+and ask whether to abort or overwrite the installed dirty payload. Proceed only
+with explicit approval:
+
+```bash
+/path/to/federate/scripts/fed_update_check.sh --apply --force
+```
+
 ## Use
 
 Say `federate` when a plan, audit result, bug fix, build milestone, or verdict
@@ -134,10 +143,11 @@ The coordinator will:
 6. Cross-show each peer the other peers' verbatim replies and confidence by
    default.
 7. Collect the cross-pollinated replies, including revised confidence.
-8. Run another complete round when convergence is not high enough, up to three
-   rounds for the iteration.
+8. Run another complete round when convergence is not high enough for the
+   current bounded decision, up to three rounds for the iteration.
 9. Bring back the synthesis with a short convergence note: confidence,
-   round count, trend when relevant, and the main residual delta.
+   round count, why confidence is high enough or not, trend when relevant, and
+   the main residual delta.
 
 The coordinator should not ask whether to cross-pollinate or whether a second
 internal round is necessary. It should judge convergence, iterate when useful,
@@ -150,13 +160,24 @@ build work, role confidence. Those confidence statements are cross-pollinated
 verbatim, then peers revise or reaffirm confidence before the coordinator makes
 the decision.
 
+There is no rigid universal score for "high enough." The coordinator judges it
+from the federated intelligence: whether peers converge on the same plan spine
+or next small action, whether objections are answered or reduced to
+non-blocking tension, whether receipts and assumptions survive crossing,
+whether any blocker would change the next step, and whether confidence is
+stable or rising after cross-pollination. Preserve peer numeric scores when
+they provide them, but do not average them into fake certainty.
+
 By default, the user is the human in the loop and decides after the synthesis.
 For set-and-forget work, ask the coordinator to emulate the human in the loop.
-It should first confirm one of two modes: follow an existing plan, or let
-federation steer the next bounded step each time. In both modes it should use
+It should confirm one simple A/B choice once: follow an existing plan, or let
+federation steer the next bounded step each time. After that, it should not
+hassle the human for ordinary project-owner choices. In both modes it should use
 the user's stated goals, preferences, risk tolerance, prior decisions, and
-observed leanings as steering context. Irreversible actions still require
-explicit user authorization.
+observed leanings as steering context. It advances only on absolute high
+convergence: the next action is small, reversible, inside the delegation,
+outside every hard gate, backed by verified receipts, and has an obvious undo
+path. Irreversible actions still require explicit user authorization.
 
 For code work, the coordinator should orchestrate rather than edit by default.
 Peers are polled for role confidence first. A test/spec owner goes first and
@@ -164,25 +185,25 @@ seals the failing test, fixture, oracle, assertion, or precise expected behavior
 before implementation begins. Then an implementation owner edits, and a separate
 reviewer/verifier checks the result when enough peers are available.
 
-By default the session bootstrap tries `claude`, `codex`, and
+By default the session bootstrap uses no-prompt/yolo peer commands:
+`IS_SANDBOX=1 claude --dangerously-skip-permissions`,
+`codex --dangerously-bypass-approvals-and-sandbox`, and
 `hermes --cli --yolo`, skipping CLIs that are not installed. It requires at
-least two live peer
-sessions. Codex metadata disables implicit invocation, so use the skill
-explicitly when you want to spend the extra peer-agent calls.
+least two live peer sessions. Codex metadata disables implicit invocation, so
+use the skill explicitly when you want to spend the extra peer-agent calls.
 
 Runtime overrides:
 
 ```bash
 FED_AGENTS=claude,codex /path/to/federate/scripts/fed_sessions.sh
-FED_CLAUDE_CMD='claude --dangerously-skip-permissions' /path/to/federate/scripts/fed_sessions.sh
-FED_CODEX_CMD='codex --dangerously-bypass-approvals-and-sandbox' /path/to/federate/scripts/fed_sessions.sh
+FED_CLAUDE_CMD='claude' /path/to/federate/scripts/fed_sessions.sh
+FED_CODEX_CMD='codex' /path/to/federate/scripts/fed_sessions.sh
 FED_HERMES_CMD='hermes --cli' /path/to/federate/scripts/fed_sessions.sh
-FEDERATE_UNSAFE=1 /path/to/federate/scripts/fed_sessions.sh
 ```
 
-Hermes defaults to `--yolo` for federation. Use `FED_HERMES_CMD='hermes --cli'`
-when you want Hermes approval prompts. Use Claude/Codex bypass modes only inside
-an external sandbox with no secrets or irreversible access.
+Use explicit `FED_*_CMD` overrides only when you intentionally want prompt mode
+or a custom model/profile. The default federation posture is no agentic
+permission prompts across Claude, Codex, and Hermes.
 
 ## Files
 
@@ -204,12 +225,15 @@ install.sh         install into Claude, Codex, and Hermes skill homes
 
 ## Notes
 
-- Transcript/state reads are the source of truth. Tmux scrollback is only for
-  liveness checks.
+- Transcript/state reads are the source of truth. Tmux is the visible runtime
+  and liveness surface; tmux scrollback is not the reply source.
 - `fed_read.py codex` returns final-answer blocks when Codex phase tags are
   present.
 - `fed_read.py hermes` searches `${HERMES_HOME:-~/.hermes}/state.db` and profile
   databases for the nonce.
+- `fed_send.sh` inserts the nonce at the top and bottom of a brief. The top
+  nonce anchors transcript/state reads; the bottom nonce makes long tmux pastes
+  easier to verify before Enter is sent.
 - Token conservation helps most when peers produce compact, evidence-dense
   original answers. Do not post-process peer replies into compressed prose
   before cross-pollination; that can delete uncertainty, minority reports,
