@@ -152,8 +152,9 @@ The coordinator will:
 5. Cross-show each peer the other peers' verbatim replies.
 6. Score convergence and bring agreements, deltas, and advice to the operator.
 
-By default the session bootstrap tries `claude`, `codex`, and `hermes --cli`,
-skipping CLIs that are not installed. It requires at least two live peer
+By default the session bootstrap tries `claude`, `codex`, and
+`hermes --cli --yolo`, skipping CLIs that are not installed. It requires at
+least two live peer
 sessions. Codex metadata disables implicit invocation, so use the skill
 explicitly when you want to spend the extra peer-agent calls.
 
@@ -163,12 +164,13 @@ Runtime overrides:
 FED_AGENTS=claude,codex /path/to/federate/scripts/fed_sessions.sh
 FED_CLAUDE_CMD='claude --dangerously-skip-permissions' /path/to/federate/scripts/fed_sessions.sh
 FED_CODEX_CMD='codex --dangerously-bypass-approvals-and-sandbox' /path/to/federate/scripts/fed_sessions.sh
-FED_HERMES_CMD='hermes --cli --yolo' /path/to/federate/scripts/fed_sessions.sh
+FED_HERMES_CMD='hermes --cli' /path/to/federate/scripts/fed_sessions.sh
 FEDERATE_UNSAFE=1 /path/to/federate/scripts/fed_sessions.sh
 ```
 
-Use bypass/yolo modes only inside an external sandbox with no secrets or
-irreversible access.
+Hermes defaults to `--yolo` for federation. Use `FED_HERMES_CMD='hermes --cli'`
+when you want Hermes approval prompts. Use Claude/Codex bypass modes only inside
+an external sandbox with no secrets or irreversible access.
 
 ## Files
 

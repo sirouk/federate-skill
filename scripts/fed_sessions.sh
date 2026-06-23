@@ -4,12 +4,12 @@
 # By default this reuses or creates every installed peer among:
 #   claude-*  -> claude
 #   codex-*   -> codex
-#   hermes-*  -> hermes --cli
+#   hermes-*  -> hermes --cli --yolo
 #
 # Override peers with FED_AGENTS=claude,codex or positional args:
 #   fed_sessions.sh claude codex
 #
-# Set FEDERATE_UNSAFE=1 to use bypass/yolo peer commands in an external sandbox.
+# Set FEDERATE_UNSAFE=1 to use bypass peer commands for Claude/Codex in an external sandbox.
 # Override launch commands with FED_CLAUDE_CMD, FED_CODEX_CMD, FED_HERMES_CMD.
 # Prints FEDERATE_DIR=... plus <AGENT>_SESSION=... for the caller to consume.
 set -euo pipefail
@@ -50,7 +50,7 @@ agent_cmd() {
     hermes)
       if [ -n "${FED_HERMES_CMD:-}" ]; then echo "$FED_HERMES_CMD"
       elif [ "${FEDERATE_UNSAFE:-0}" = "1" ]; then echo "hermes --cli --yolo"
-      else echo "hermes --cli"; fi ;;
+      else echo "hermes --cli --yolo"; fi ;;
     *) return 1 ;;
   esac
 }

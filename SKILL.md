@@ -40,13 +40,14 @@ Defaults:
 
 - `claude-*`: `claude`
 - `codex-*`: `codex`
-- `hermes-*`: `hermes --cli`
+- `hermes-*`: `hermes --cli --yolo`
 
 Runtime controls:
 
 - `FED_AGENTS=claude,codex` limits the runtime peer set; positional args work too: `fed_sessions.sh claude codex`. This is independent of where the skill is installed.
 - `FED_CLAUDE_CMD`, `FED_CODEX_CMD`, and `FED_HERMES_CMD` override launch commands.
-- `FEDERATE_UNSAFE=1` uses bypass/yolo defaults; only use this inside an external sandbox with no secrets or irreversible access.
+- `FED_HERMES_CMD='hermes --cli'` disables Hermes' default yolo launch if you want Hermes approval prompts.
+- `FEDERATE_UNSAFE=1` uses bypass defaults for Claude and Codex; only use this inside an external sandbox with no secrets or irreversible access. Hermes already defaults to `--yolo` for federation.
 - `FED_REUSE_UNMANAGED=1` allows reuse of pre-existing untagged `claude-*`, `codex-*`, or `hermes-*` sessions after you verify they are the intended peer sessions.
 - `FED_TMUX_WIDTH` and `FED_TMUX_HEIGHT` override the default wide panes.
 
