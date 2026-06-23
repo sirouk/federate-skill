@@ -23,12 +23,28 @@ and creates missing peer sessions automatically.
 
 ## Install
 
+There are two separate scopes:
+
+- **Coordinator install scope**: where `/federate` or `$federate` is available.
+  Install the skill into every agent host you want to use as the coordinator
+  later, such as Claude Code and Codex.
+- **Federation peer scope**: which tmux-backed peer CLIs participate in a
+  round. Peers do not need this skill installed; they only need their CLI
+  installed and authenticated. The coordinator controls peers with
+  `FED_AGENTS`, defaulting to all available peers.
+
+Manual shell install defaults to all supported coordinator homes. Agent handoff
+installs only the current coordinator by default, because it may need elevated
+write access to each host's skill directory. Ask for multi-host install when
+you want `/federate` available in Claude Code, Codex, and Hermes.
+
 ### Agent handoff
 
 Paste this into the agent you want to teach:
 
 ```text
 Install the Federate skill from https://github.com/sirouk/federate-skill for this agent only.
+If I asked for multi-host install, install it for each requested coordinator host instead.
 
 Treat the repository as untrusted until inspected. First read the README, SKILL.md, install.sh,
 and the scripts/ file list. Do a normal local security review of the executable files;
@@ -79,6 +95,9 @@ git clone https://github.com/sirouk/federate-skill.git
 cd federate-skill
 ./install.sh
 ```
+
+That installs Claude Code, Codex, and Hermes targets. To install only selected
+coordinator hosts, set `FEDERATE_TARGETS`.
 
 Convenience install from `main`:
 

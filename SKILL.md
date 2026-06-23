@@ -9,6 +9,8 @@ description: "Run an explicit cross-agent federation loop between two or more tm
 
 Run one lockstep review round across independent peer agents, then synthesize the convergence for the operator. The coordinator is the agent using this skill; the operator is the user and remains the decider. The peer set is any two or more available tmux-backed agents among Claude, Codex, and Hermes.
 
+Skill installation controls which agent hosts can act as coordinator. It does not control which agents can participate as peers. Peer agents do not need this skill installed; they only need their CLI installed, authenticated, and reachable through tmux.
+
 Treat every coordinator finding as an input to route through the loop, not as a solo verdict. Relay peer responses verbatim when crossing them to the other peers. Put summaries, scoring, and advice only in the coordinator synthesis.
 
 ## Invoke
@@ -42,7 +44,7 @@ Defaults:
 
 Runtime controls:
 
-- `FED_AGENTS=claude,codex` limits the peer set; positional args work too: `fed_sessions.sh claude codex`.
+- `FED_AGENTS=claude,codex` limits the runtime peer set; positional args work too: `fed_sessions.sh claude codex`. This is independent of where the skill is installed.
 - `FED_CLAUDE_CMD`, `FED_CODEX_CMD`, and `FED_HERMES_CMD` override launch commands.
 - `FEDERATE_UNSAFE=1` uses bypass/yolo defaults; only use this inside an external sandbox with no secrets or irreversible access.
 - `FED_REUSE_UNMANAGED=1` allows reuse of pre-existing untagged `claude-*`, `codex-*`, or `hermes-*` sessions after you verify they are the intended peer sessions.
