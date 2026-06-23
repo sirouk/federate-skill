@@ -9,6 +9,18 @@ The helper scripts handle the fragile parts: creating/reusing tmux sessions,
 safe bracketed paste, nonce-based transcript reads, Codex final-answer
 extraction, Hermes `state.db` reads, and idle waiting.
 
+## Why
+
+Federate exists because I wanted a Ralph-style loop with a human throttle.
+
+The same loop can run lockstep with a human in the chair, or be paired with a
+host goal mode such as `/goal` when the work is ready for autopilot.
+
+The point is not model democracy. The point is forcing independent Claude,
+Codex, and Hermes passes, then making them read each other's arguments and show
+where they actually converge. Convergence is the useful signal. The
+disagreements are the work queue.
+
 ## Requirements
 
 - `tmux`
