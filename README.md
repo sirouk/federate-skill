@@ -25,9 +25,10 @@ and creates missing peer sessions automatically.
 
 There are two separate scopes:
 
-- **Coordinator install scope**: where `/federate` or `$federate` is available.
-  Install the skill into every agent host you want to use as the coordinator
-  later, such as Claude Code and Codex.
+- **Coordinator install scope**: where the skill can be invoked by the
+  coordinator. Codex uses `$federate` or `/skills`; some hosts expose skills in
+  slash menus. Install the skill into every agent host you want to use as the
+  coordinator later, such as Claude Code and Codex.
 - **Federation peer scope**: which tmux-backed peer CLIs participate in a
   round. Peers do not need this skill installed; they only need their CLI
   installed and authenticated. The coordinator controls peers with
@@ -36,7 +37,8 @@ There are two separate scopes:
 Manual shell install defaults to all supported coordinator homes. Agent handoff
 installs only the current coordinator by default, because it may need elevated
 write access to each host's skill directory. Ask for multi-host install when
-you want `/federate` available in Claude Code, Codex, and Hermes.
+you want the skill available from more than one coordinator, for example both
+Claude Code and Codex.
 
 ### Agent handoff
 
@@ -69,16 +71,19 @@ Fallback path for older GitHub CLI versions or Hermes:
    - Codex: `FEDERATE_TARGETS=codex ./install.sh`
    - Claude Code: `FEDERATE_TARGETS=claude ./install.sh`
    - Hermes: `FEDERATE_TARGETS=hermes ./install.sh`
-   Run plain `./install.sh` only if I explicitly ask for multi-host install.
+   If I ask for a specific multi-host install, pass a comma-separated target list,
+   for example `FEDERATE_TARGETS=claude,codex ./install.sh`. Run plain `./install.sh`
+   only if I explicitly ask for every supported host.
 
 Verify that the installed directory contains SKILL.md, agents/openai.yaml, and executable
 scripts/fed_sessions.sh, scripts/fed_send.sh, scripts/fed_read.py, and scripts/fed_wait.sh.
 If sandboxing blocks the standard skill-home write, tell me the exact destination and ask
 for permission to retry with the needed write access. Do not pick another destination.
 
-Tell me to refresh or restart the agent session before using the slash command. A live
-session may notice the new skill files, but slash-command menus such as `/federate` are
-often cached until refresh. Do not start federation yet.
+Tell me to refresh or restart the agent session before using the skill. In Codex,
+use `$federate` or select it through `/skills`; do not assume `/federate` is a
+Codex command. Slash-command and skill menus may be cached until refresh. Do not
+start federation yet.
 ```
 
 The `gh skill` path is preferred when available because it can preview before
@@ -130,13 +135,15 @@ Default target paths:
 The shell installer targets POSIX/WSL paths. On native Windows, set `HERMES_HOME`
 or install the files under Hermes' native profile directory manually.
 
-Restart or refresh the agent session after installing, then explicitly say
-`federate`.
+Restart or refresh the agent session after installing. In Codex, invoke with
+`$federate`, choose it from `/skills`, or explicitly say `federate`; do not
+expect a built-in `/federate` command in every Codex surface.
 
 ## Use
 
 Say `federate` when a plan, audit result, bug fix, build milestone, or verdict
-needs independent review. The coordinator will:
+needs independent review. In Codex, `$federate` is the explicit skill mention.
+The coordinator will:
 
 1. Run `scripts/fed_sessions.sh` to create/reuse peer tmux sessions.
 2. Write one brief per peer in a relay directory outside the project.
