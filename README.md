@@ -74,6 +74,9 @@ Preferred path when GitHub CLI supports agent skills:
    - Codex: `gh skill install sirouk/federate-skill SKILL.md --agent codex --scope user`
    - Claude Code: `gh skill install sirouk/federate-skill SKILL.md --agent claude-code --scope user`
    If a release tag or approved commit SHA is available, add `--pin <ref>`.
+   If this path does not install `.federate-install.json`, use the fallback
+   clone installer instead; Federate's runtime update check requires that
+   metadata.
 
 Fallback path for older GitHub CLI versions or Hermes:
 1. Clone to a temporary directory:
@@ -87,8 +90,10 @@ Fallback path for older GitHub CLI versions or Hermes:
    for example `FEDERATE_TARGETS=claude,codex ./install.sh`. Run plain `./install.sh`
    only if I explicitly ask for every supported host.
 
-Verify that the installed directory contains SKILL.md, agents/openai.yaml, and executable
-scripts/fed_sessions.sh, scripts/fed_send.sh, scripts/fed_read.py, and scripts/fed_wait.sh.
+Verify that the installed directory contains SKILL.md, agents/openai.yaml,
+.federate-install.json, and executable scripts/fed_sessions.sh,
+scripts/fed_send.sh, scripts/fed_read.py, scripts/fed_wait.sh, and
+scripts/fed_update_check.sh.
 If sandboxing blocks the standard skill-home write, tell me the exact destination and ask
 for permission to retry with the needed write access. Do not pick another destination.
 
@@ -103,9 +108,12 @@ federation yet.
 ```
 
 The `gh skill` path is preferred when available because it can preview before
-installing, target the current agent host, and record source metadata for
-updates. The clone installer remains the compatibility path for Hermes and for
-older environments.
+installing and target the current agent host. Federate still requires
+`.federate-install.json` for runtime update checks; if `gh skill install` does
+not create it, use the clone installer. The clone installer remains the
+compatibility path for Hermes and for older environments. `install.sh` writes
+the source, ref, installed commit, dirty flag, and timestamp so the skill can
+check for updates at runtime.
 
 ### Shell
 
@@ -127,7 +135,10 @@ curl -fsSL https://raw.githubusercontent.com/sirouk/federate-skill/main/install.
 ```
 
 Use the clone path when you need to inspect the installer first or pin your own
-checkout. The one-line installer executes the current `main` branch.
+checkout. The one-line installer executes the current `main` branch. Every
+install records a commit in `.federate-install.json`; set `FEDERATE_COMMIT`
+only for manual/pinned installs where the installer cannot resolve the commit
+itself.
 
 Install only selected targets:
 
@@ -155,21 +166,42 @@ Restart or refresh the agent session after installing. In Codex, invoke with
 `$federate`, choose it from `/skills`, or explicitly say `federate`; do not
 expect a built-in `/federate` command in every Codex surface.
 
+### Update
+
+Every Federate invocation starts by running:
+
+```bash
+/path/to/federate/scripts/fed_update_check.sh
+```
+
+If the installed commit is stale, the coordinator should run:
+
+```bash
+/path/to/federate/scripts/fed_update_check.sh --apply
+```
+
+That updates the installed skill payload for the current coordinator host from
+the recorded source/ref, then asks whether to refresh/restart the agent session
+or continue with the already-loaded copy. Refresh is recommended because host
+agents can cache skill menus and `SKILL.md` contents.
+
 ## Use
 
 Say `federate` when a plan, audit result, bug fix, build milestone, or verdict
 needs independent review. In Codex, `$federate` is the explicit skill mention.
 The coordinator will:
 
-1. Run `scripts/fed_sessions.sh` to create/reuse peer tmux sessions.
-2. Write one brief per peer in a relay directory outside the project.
-3. Send all briefs before reading any answer.
-4. Read each peer by nonce from transcript/state, not tmux scrollback.
-5. Cross-show each peer the other peers' verbatim replies by default.
-6. Collect the cross-pollinated replies and synthesize the result.
-7. Run another complete round when convergence is not high enough, up to three
+1. Run `scripts/fed_update_check.sh` and update first if the installed commit is
+   stale.
+2. Run `scripts/fed_sessions.sh` to create/reuse peer tmux sessions.
+3. Write one brief per peer in a relay directory outside the project.
+4. Send all briefs before reading any answer.
+5. Read each peer by nonce from transcript/state, not tmux scrollback.
+6. Cross-show each peer the other peers' verbatim replies by default.
+7. Collect the cross-pollinated replies and synthesize the result.
+8. Run another complete round when convergence is not high enough, up to three
    rounds for the iteration.
-8. Bring back the synthesis with a short convergence note: confidence,
+9. Bring back the synthesis with a short convergence note: confidence,
    round count, trend when relevant, and the main residual delta.
 
 The coordinator should not ask whether to cross-pollinate or whether a second
@@ -215,7 +247,11 @@ scripts/
   fed_send.sh      nonce-tag, bracketed-paste, verify, submit
   fed_read.py      read Claude/Codex transcripts or Hermes state.db by nonce
   fed_wait.sh      wait until listed sessions appear idle
+  fed_update_check.sh
+                   check/apply installed skill updates by recorded commit
 install.sh         install into Claude, Codex, and Hermes skill homes
+.federate-install.json
+                   generated install metadata: source, ref, commit, dirty flag, timestamp
 ```
 
 ## Notes

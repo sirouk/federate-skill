@@ -34,15 +34,16 @@ mode, and expected extra cost/time.
 
 One invocation means one complete federation iteration:
 
-1. Bootstrap peer tmux sessions.
-2. Frame the object and rails.
-3. Send to all peers independently before reading any peer.
-4. Cross-pollinate each peer with the other peers' verbatim replies.
-5. Collect cross-pollinated replies.
-6. Score convergence confidence and synthesize the barycenter of the result.
-7. If convergence is not high enough, run another complete round without asking,
+1. Check whether the installed skill is current.
+2. Bootstrap peer tmux sessions.
+3. Frame the object and rails.
+4. Send to all peers independently before reading any peer.
+5. Cross-pollinate each peer with the other peers' verbatim replies.
+6. Collect cross-pollinated replies.
+7. Score convergence confidence and synthesize the barycenter of the result.
+8. If convergence is not high enough, run another complete round without asking,
    up to three rounds total for the iteration.
-8. Return the synthesis with a short convergence note, or advance one bounded
+9. Return the synthesis with a short convergence note, or advance one bounded
    step if the user delegated project-owner judgment.
 
 ## Modes
@@ -58,6 +59,35 @@ One invocation means one complete federation iteration:
   moving again. Do not stop for ordinary project-owner choices when convergence
   is high. Stop only for hard gates, unavailable peers, or unresolved blocking
   divergence after the three-round cap.
+
+## Update Check
+
+At the start of every invocation, before bootstrapping peers, run the installed
+update checker:
+
+```bash
+/absolute/path/to/federate/scripts/fed_update_check.sh
+```
+
+Interpret stdout:
+
+- `UP_TO_DATE ...`: continue normally.
+- `UPDATE_AVAILABLE ...`: run the update immediately:
+
+  ```bash
+  /absolute/path/to/federate/scripts/fed_update_check.sh --apply
+  ```
+
+  Then stop and ask the operator whether to refresh/restart the agent session
+  now or continue this invocation with the already-loaded skill instructions.
+  Recommend refresh/restart because skill menus and `SKILL.md` contents can be
+  cached by the host agent. Do not bootstrap peers until the operator chooses.
+- `ERROR ...`: report that freshness could not be verified and ask whether to
+  continue with the installed copy or stop for manual update.
+
+The update checker uses `.federate-install.json` written by `install.sh`. It
+compares the installed commit to the recorded source/ref and updates only the
+installed skill payload for the current coordinator host.
 
 ## Bootstrap Peers
 
@@ -271,6 +301,8 @@ For result-bearing evaluations, pre-register methodology, thresholds, and verdic
 - `fed_read.py hermes` searches `${HERMES_HOME:-~/.hermes}/state.db` and profile `state.db` files for the nonce marker in an active user message, then returns assistant messages from that same session until the next user turn.
 - `fed_send.sh` uses bracketed paste, verifies that text reached the composer, and sends Enter separately. If verification fails, it clears the staged buffer and exits nonzero.
 - `fed_wait.sh` is a liveness hint, not proof of completion. Some agents go pane-idle while sub-work is still running; the nonce read decides whether a real answer has landed.
+- `fed_update_check.sh` compares `.federate-install.json` to the recorded
+  source/ref and can update the installed payload in place with `--apply`.
 
 ## Ledger
 
@@ -290,4 +322,5 @@ The ledger is the round memory. If a fact is load-bearing and not in the ledger 
 - `scripts/fed_send.sh <session> <msgfile>`: nonce-tag, bracketed-paste, verify, and submit; stdout is the bare nonce.
 - `scripts/fed_read.py <claude|codex|hermes> --nonce N`: return the peer's verbatim answer anchored by nonce.
 - `scripts/fed_wait.sh <session...>`: wait until all listed sessions appear idle.
+- `scripts/fed_update_check.sh [--apply]`: check/apply installed skill updates by recorded commit.
 - `agents/openai.yaml`: Codex UI metadata; disables implicit invocation.
