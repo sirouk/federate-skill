@@ -1,120 +1,185 @@
 ---
 name: federate
-description: Run the 4-party "Federation & Synthesis of intelligence" loop. Relay a decision / plan / audit / bug-fix / build-milestone between a tmux Claude and a tmux Codex — ask both INDEPENDENTLY, then CROSS-POLLINATE (each sees the other), then digest the convergence and bring it to the operator to decide. Invoke whenever the user says "federate" (or "fed-synth" / "federation"), or at any consequential decision, plan, audit, bug fix, build milestone, or verdict where independent expert review + synthesis should drive the next step.
+description: "Run a cross-agent federation loop between two or more tmux-backed peer agents: Claude, Codex, and Hermes when available. Use when the user says \"federate\", \"fed-synth\", or \"federation\", or when a consequential decision, plan, audit, bug fix, build milestone, or verdict needs independent review, cross-pollination, convergence scoring, and an operator decision."
 ---
 
-# Federate — Federation & Synthesis of Intelligence
+# Federate - Federation & Synthesis of Intelligence
 
-Four minds think together on every consequential step; the best move emerges from their **convergence**:
+## Overview
 
-1. **Claude** — a tmux session (`claude-*`).
-2. **Codex** — a tmux session (`codex-*`).
-3. **Coordinator** — YOU, the agent running this skill. You **bridge, judge, score, guide** — never rule alone.
-4. **Operator** — the user. The **fourth voice and the decider**: they choose the next step, with your best advice.
+Run one lockstep review round across independent peer agents, then synthesize the convergence for the operator. The coordinator is the agent using this skill; the operator is the user and remains the decider. The peer set is any two or more available tmux-backed agents among Claude, Codex, and Hermes.
 
-You relay each party's **actual words** (verbatim; add your framing as a clearly separate layer, never distort or summarize *into* the relay). You score convergence and bring the synthesis to the operator. **Anything YOU discover is an input routed through the loop, never a solo verdict.** Move in **lockstep** every round: keep both agents on the **rails** (state the constraints each hop) and **informed** (always relay the other's real response). The two loaded sessions are a live pool of deep intelligence — not tools.
+Treat every coordinator finding as an input to route through the loop, not as a solo verdict. Relay peer responses verbatim when crossing them to the other peers. Put summaries, scoring, and advice only in the coordinator synthesis.
 
-## When to invoke
-The user says "federate," **or** you reach a decision / plan / audit / bug-fix / build-milestone / verdict that deserves independent review + synthesis. One invocation = **one full round** on the current state + the last results from both agents.
+## Invoke
 
-**Decision vs Build (pick the track in step 0):**
-- **DECISION / PLAN / AUDIT / verdict** → run the 4-step loop, stop at the operator.
-- **BUILD / fix / milestone** → run the loop **and** apply the build rails: score & split work-packages with one accountable owner each; route two *cross-checking* packages (spec↔impl, oracle↔engine) to **different** owners; the non-implementer **seals** the oracle/expected-values to YOU before the build; you hold neutral SHA-256 custody; trust is gated behind a fixture/Gate-1 cross-check **and** a pre-agreed adversarial code-review — *a clean test pass is not sign-off.* (See **Rails**.)
+Invoke when the user says "federate", "fed-synth", or "federation", or when a consequential plan, audit result, build milestone, fix set, irreversible action, or verdict would benefit from independent review.
 
----
+One invocation means one complete round:
 
-## Setup (once per thread)
+1. Bootstrap peer tmux sessions.
+2. Frame the object and rails.
+3. Send to all peers independently before reading any peer.
+4. Cross-pollinate each peer with the other peers' verbatim replies.
+5. Synthesize convergence and open deltas for the operator.
+6. Stop for the operator decision unless they already authorized the next round/action.
+
+## Bootstrap Peers
+
+Always run `scripts/fed_sessions.sh` first in a thread or after any uncertainty about live peer sessions. Do not ask the operator to start tmux. The script starts the tmux server if needed, reuses existing `claude-*`, `codex-*`, and `hermes-*` sessions, and creates missing sessions for installed CLIs.
+
+Use the `scripts/` directory next to this `SKILL.md`:
 
 ```bash
-~/.claude/skills/federate/scripts/fed_sessions.sh    # reuses claude-* / codex-*; else creates claude-0 / codex-0 (wide panes)
+/absolute/path/to/federate/scripts/fed_sessions.sh
 ```
-- It prints `CLAUDE_SESSION=…` and `CODEX_SESSION=…`. **Read those and substitute the LITERAL names** (e.g. `claude-0`, `codex-0`) into every command below — *shell variables do NOT persist between tool calls.* (Prefer the operator's existing tuned session, e.g. `codex-1`, over a fresh one.)
-- New sessions launch with: claude-0 = `IS_SANDBOX=1 claude --dangerously-skip-permissions`; codex-0 = `codex --dangerously-bypass-approvals-and-sandbox`.
-- **Boot-gate:** if it printed `CREATED`, the CLIs are still booting and a not-yet-started pane reads as *idle* (false). Wait ~10s, then confirm each composer is live: `tmux capture-pane -t claude-0 -p | tail -5` (a prompt box, not a boot screen) before the first send. If `fed_send` prints `ERROR: paste not detected`, the session isn't ready — wait and retry; treat an empty nonce as a **failed send** and do not proceed to read.
-- **Workspace (absolute paths — the harness resets CWD between calls):**
+
+Defaults:
+
+- `claude-*`: `IS_SANDBOX=1 claude --dangerously-skip-permissions`
+- `codex-*`: `codex --dangerously-bypass-approvals-and-sandbox`
+- `hermes-*`: `hermes --cli --yolo`
+
+Runtime controls:
+
+- `FED_AGENTS=claude,codex` limits the peer set; positional args work too: `fed_sessions.sh claude codex`.
+- `FED_CLAUDE_CMD`, `FED_CODEX_CMD`, and `FED_HERMES_CMD` override launch commands.
+- `FED_TMUX_WIDTH` and `FED_TMUX_HEIGHT` override the default wide panes.
+
+The script prints `FEDERATE_DIR=...` and one variable per available peer, such as `CLAUDE_SESSION=claude-0`, `CODEX_SESSION=codex-0`, and `HERMES_SESSION=hermes-0`. Use those literal session names in later commands; shell variables do not persist between tool calls. If fewer than two peers are available, stop and report the missing CLI/authentication requirement.
+
+If the script prints `CREATED`, the CLI is still booting. Wait about 10 seconds, then inspect the pane before first send:
+
 ```bash
-RELAY=~/relay/$(date +%Y%m%d_%H%M%S); mkdir -p "$RELAY"   # do this ONCE; then use the literal path, e.g. /root/relay/20260622_201500
+tmux capture-pane -t claude-0 -p | tail -5
 ```
-Write all briefs and the ledger here. **Never** write relay artifacts into the project under audit.
 
----
+Proceed only when the composer is live. If `fed_send.sh` reports `ERROR: paste not detected`, the peer is not ready or is busy; wait and retry.
 
-## A federation round (the core loop)
+## Relay Workspace
 
-### 0 · Frame
-Decide the **object** (decision / plan / audit-finding / fix-set / milestone / verdict) and write a brief **per recipient** (byte-identical except the salutation name) to `$RELAY/`. Every brief, in order:
-- **(a) FRAME** — where we are + the exact object.
-- **(b) RAILS** — read-only vs build, what is frozen/sealed/gated; re-stamp the standing constraint as a literal line (e.g. *"Still NO code"*). Crossing a phase boundary (plan→code, design→build, build→irreversible-run) needs an **explicit operator signature in the ledger**, never your inference.
-- **(c) GROUNDING** — verified receipts / file refs (things you re-derived yourself).
-- **(d) ASK** — tight 2–3 parts; the last part = the single biggest question for the other agent / operator.
+Create one relay directory outside the project under review and reuse it for the whole round:
 
-If **you** discovered the object (a file, a bug, a reframe), it is still just an input: make it the brief and send it to **both**, do not pre-rule on it.
-
-### 1 · Independent (send to BOTH before reading EITHER)
 ```bash
-# substitute the real session names + the real $RELAY path
-NC=$(~/.claude/skills/federate/scripts/fed_send.sh claude-0 /root/relay/STAMP/brief_claude.md)   # STDOUT = bare nonce
-NX=$(~/.claude/skills/federate/scripts/fed_send.sh codex-0  /root/relay/STAMP/brief_codex.md)
-echo "NC=$NC NX=$NX"   # record both; a FRESH nonce is minted per send — never reuse one
+RELAY=~/relay/$(date +%Y%m%d_%H%M%S); mkdir -p "$RELAY"
 ```
-Then wait, **in the background**, and let the harness re-invoke you:
+
+Write briefs, verbatim reads, cross-show files, hashes, and `relay_log.md` there. Never write relay artifacts into the project under audit.
+
+## Round Procedure
+
+### 0. Frame
+
+Decide the object: decision, plan, audit finding, fix set, build milestone, or verdict. Write one brief per peer in `$RELAY/brief_<agent>.md`; keep them byte-identical except for salutation/name when possible.
+
+Every brief must include:
+
+- `FRAME`: current state and the exact object under review.
+- `RAILS`: read-only vs build; frozen artifacts; gated actions; any standing constraint as a literal line, such as `Still NO code`.
+- `GROUNDING`: receipts you personally re-derived, with file refs, commands, hashes, or observed facts.
+- `ASK`: two or three tight questions; end with the biggest question for the other peers or operator.
+
+Crossing a phase boundary such as plan to code, design to build, or build to irreversible run requires explicit operator authorization recorded in `relay_log.md`.
+
+### 1. Independent Send
+
+Send to every available peer before reading any peer. Capture a fresh nonce for each send; never reuse a nonce.
+
 ```bash
-~/.claude/skills/federate/scripts/fed_wait.sh claude-0 codex-0   # run with run_in_background:true
+NC=$(/absolute/path/to/federate/scripts/fed_send.sh claude-0 "$RELAY/brief_claude.md")
+NX=$(/absolute/path/to/federate/scripts/fed_send.sh codex-0 "$RELAY/brief_codex.md")
+NH=$(/absolute/path/to/federate/scripts/fed_send.sh hermes-0 "$RELAY/brief_hermes.md")  # only if HERMES_SESSION was printed
 ```
-On `ALL_IDLE`, read each **verbatim from the transcript** (not the pane) with that hop's nonce:
+
+Wait for the sessions you actually sent to:
+
 ```bash
-~/.claude/skills/federate/scripts/fed_read.py claude --nonce "$NC"
-~/.claude/skills/federate/scripts/fed_read.py codex  --nonce "$NX"
+/absolute/path/to/federate/scripts/fed_wait.sh claude-0 codex-0 hermes-0
 ```
-**Sanity-check each read** before using it: it must be a real answer — not a placeholder ("running a workflow / let me…"), not your own brief echoed back, and the `[fed_read …] <path>` stderr line must point at the expected session. *If it's a placeholder, the agent spawned its own sub-task and went pane-idle while still working* — re-launch `fed_wait`, re-read with the **same** nonce after the next idle, repeat until it's a real answer. A `nonce NOT FOUND` error means it hasn't replied yet — wait, don't fall back.
 
-### 2 · Cross-pollinate (the load-bearing hop — do not skip)
-Write `$RELAY/cross_claude.md` = Codex's **verbatim** `fed_read` turn under a labelled block (`=== CODEX (verbatim) ===`) + your framing as a **separate** section + a tight "confirm / dispute / reconcile" ask. Mirror for Codex. **Never summarize the other's content into the brief** — your paraphrase is for the operator only (step 3). When the two artifacts cross-check each other (spec↔impl, oracle↔engine), this is where each reviews the other's **actual work**.
+Then read by nonce from transcripts/state, not tmux scrollback:
+
 ```bash
-NC2=$(~/.claude/skills/federate/scripts/fed_send.sh claude-0 /root/relay/STAMP/cross_claude.md)   # FRESH nonce
-NX2=$(~/.claude/skills/federate/scripts/fed_send.sh codex-0  /root/relay/STAMP/cross_codex.md)
-# background fed_wait, then:
-~/.claude/skills/federate/scripts/fed_read.py claude --nonce "$NC2"
-~/.claude/skills/federate/scripts/fed_read.py codex  --nonce "$NX2"
+/absolute/path/to/federate/scripts/fed_read.py claude --nonce "$NC"
+/absolute/path/to/federate/scripts/fed_read.py codex  --nonce "$NX"
+/absolute/path/to/federate/scripts/fed_read.py hermes --nonce "$NH"
 ```
-**Only** note-and-skip the cross-show if the two independent replies are byte-identical AND there are no cross-checkable artifacts — and even then, tell the operator you skipped and why. (In the origin thread the cross-show produced the headline result — a beta-residualization GO criterion — even from ~9.8/10-convergent inputs; the one hop it was skipped had to be recovered later.)
 
-### 3 · Synthesize
-Digest both into a verdict for the operator:
-- a **convergence score** tracked across rounds (e.g. 8.5 → 9 → 9.8) with an explicit **residual-deltas** list; weight *independent, pre-cross-show* agreement most;
-- **agreements** (the spine) vs **deltas** (what still needs reconciling);
-- the **questions only the operator can answer** (don't invent defaults for genuine operator decisions; carry each agent's operator-question distinctly);
-- your **best advice**, grounded in the convergence.
-**LOCK** is reached only when both agents accept each other with no genuine disagreement and state the **same** one-line verdict. Flat/falling score or open deltas → run another bridging hop.
+Sanity-check each read before using it:
 
-### 4 · Operator decides
-Bring the synthesis to the operator; they pick the next step. Then the next round starts there.
+- The stderr `[fed_read ...] <path>` line must point at the expected agent transcript or Hermes `state.db`.
+- The answer must be a real response, not a placeholder like "I'll run..." or a copy of your brief.
+- A matched nonce with an empty turn means the peer is still working; wait again and read with the same nonce.
+- `nonce NOT FOUND` means the answer has not landed or the send failed; wait/retry the read, do not fall back.
 
----
+### 2. Cross-Pollinate
 
-## Mechanics — use the scripts (every line below was learned the hard way)
-- **Clean source = TRANSCRIPTS, never tmux scrollback** (scrollback is garbled by tool redraws/wrapping). `fed_read.py` pulls the verbatim turn from the active transcript, found by the **nonce** `fed_send` injects. The pane is **only** for liveness.
-- **The nonce is essential for BOTH agents.** `fed_read` globs *all* Claude projects and *all* Codex sessions; without the nonce it falls back to the most-recent transcript — which for Claude is normally the **coordinator's OWN** session. A supplied-but-unmatched nonce **fails loud** (agent hasn't replied).
-- **Codex tags assistant blocks `payload.phase ∈ {commentary, final_answer}`.** `fed_read` returns **final_answer only** — relaying Codex's internal `commentary` would corrupt the cross-show and the convergence score.
-- **Send = bracketed paste + a SEPARATE Enter** (`fed_send.sh`): it stages the paste, **confirms it landed (the confirm chrome DIFFERS between the Claude and Codex TUIs — the script checks both, plus a composer-grew test)**, then sends Enter alone; on failure it **clears the staged buffer** and exits. Never embed Enter in the paste.
-- **Liveness = `fed_wait.sh`** (run in background). Busy markers include the **truncated** `esc to int…`, `Working (`, `thinking with`, `background terminal runni`; ≥2 idle polls. **Gotcha:** an agent that spawns its OWN sub-workflow goes pane-idle while still working — don't trust pane-idle alone; confirm the transcript turn is a real answer (step 1 sanity-check).
+This is the load-bearing hop. For each peer, create `$RELAY/cross_<agent>.md` containing:
 
-## The rails (discipline that keeps four minds coherent)
-- **Living ledger.** Keep `$RELAY/relay_log.md`: every hop, decision, hash, score, verdict. It is the project's memory and the convergence trail.
-- **Neutral hash custody.** After EVERY change to a frozen artifact, `sha256sum` it **yourself**, confirm *coordinator-recomputed == author-claimed*, and re-finalize the registry. Never trust a printed hash. An object that changed without a re-hash has silently lost custody.
-- **Independence + the transitive seal.** When two artifacts cross-check (spec↔impl, oracle↔engine): different authors; the non-implementer **seals expected-values to YOU before the builder writes a line**; the builder builds **blind** and **flags** (never silently matches) any disagreement. Verify `Gate-1[impl==EXPECTED] + seal[EXPECTED==oracle] ⇒ impl==oracle`. Their independent convergence IS the validation.
-- **Verify, don't trust.** Re-derive load-bearing claims, hashes, and file/line refs yourself. (Origin thread: blind trust produced a false "18:40 UTC" and a false `None`; independent re-derivation caught both.)
-- **Adversarial swarms (Workflow tool) at two moments — mandatory, not optional:** (a) **stress-test** a converged plan *before any code*; (b) **red-team built code before audit-scale trust, even if an automated gate already passed.** Line-ground every finding against the frozen contract and **classify by verdict-direction — a bug that biases toward the favorable/GO outcome is the dangerous class.** (Origin: an **11/11** fixture-gate pass hid **22** real bugs, several false-GO-biased; the **24/24** came only after the fix cycle.) Then **federate the swarm verdict** — run it back through a full independent→cross-show round so each agent verifies the findings against its OWN artifact and owns its own bugs. *Reserve swarms for review/stress — never to build a coherence-critical single-owner artifact.*
-- **Fix-cycle (when a review finds bugs):** (1) the oracle author pins the decided rules in the frozen spec and authors NEW sealed fixtures per fix **without seeing the fixed code**; (2) you re-hash the amended spec + new sealed oracle; (3) the builder applies the fixes; (4) re-run the gate on the **full** fixture set (old + new — guards regression); (5) you re-hash impl + results, re-finalize the registry.
-- **Work-package assignment by federation.** Enumerate packages; both agents independently **score fit**; lock a conflict-free assignment; cross-checking packages → different owners; you own the neutral packages (lock, registry, ledger); the operator signs.
-- **Gate irreversible steps.** One-shot evaluations, deploys, external sends — behind explicit operator signature **and** a prior adversarial review.
-- **Pre-register / freeze before results.** Lock methodology + thresholds, hash them, get operator sign-off, *then* look. Split any result-bearing data into a **discovery** region (look freely) and a **sealed holdout opened exactly once** for the final verdict. Pre-commit a **GO / NARROW / INCONCLUSIVE / KILL** taxonomy + a power floor (underpowered sealed evidence = **INCONCLUSIVE**, not KILL).
+1. The other peer replies as labelled verbatim blocks, for example `=== CODEX (verbatim) ===`.
+2. Your framing in a separate coordinator section.
+3. A tight confirm/dispute/reconcile ask.
 
-## Cadence
-Lockstep, every round. Relay the other's actual words (not your paraphrase). Re-stamp the constraints each hop. Keep your findings as inputs, not rulings. The operator is the fourth voice and the decider — your job is to make the convergence *and the genuine disagreements* legible, and to advise.
+Do not summarize another peer into a cross brief. Use the actual words. With three peers, each peer sees the other two peers' verbatim replies. With two peers, mirror the two replies.
 
-## Files this skill provides
-- `scripts/fed_sessions.sh` — detect/create the two tmux sessions (wide panes); prints `*_SESSION=`.
-- `scripts/fed_send.sh <session> <ABSOLUTE-msgfile>` — nonce-tag + bracketed-paste + dual-TUI verify + separate Enter; STDOUT = bare nonce.
-- `scripts/fed_read.py <claude|codex> --nonce N` — verbatim answer from the active transcript (Codex final_answer only; fails loud on unmatched nonce).
-- `scripts/fed_wait.sh <session...>` — background monitor until all idle (robust truncation-aware busy patterns).
+Send all cross briefs before reading any cross reply, wait, and read by the new nonces.
+
+Only skip the cross-show when all independent replies are byte-identical and there are no cross-checkable artifacts. If skipped, tell the operator exactly why.
+
+### 3. Synthesize
+
+Digest the independent and cross-show replies for the operator:
+
+- Convergence score with trend if this is a later round, such as `8.5 -> 9.2`.
+- Agreements that form the spine of the decision.
+- Residual deltas that still matter.
+- Questions only the operator can answer, preserving each peer's distinct operator-facing question.
+- Coordinator advice grounded in the convergence and verified receipts.
+
+`LOCK` requires every peer to accept the other peers' positions with no genuine disagreement and to state the same one-line verdict. Flat or falling convergence, unresolved deltas, or conflicting operator questions means run another bridging hop or ask the operator to choose.
+
+### 4. Operator Decides
+
+Bring the synthesis to the operator and stop. The next round starts from the operator's decision.
+
+## Build Rails
+
+For build, fix, or milestone work, add these rails to the normal federation loop:
+
+- Assign one accountable owner per work package.
+- Put cross-checking artifacts on different owners, such as spec vs implementation or oracle vs engine.
+- Have the non-implementer seal expected values to the coordinator before the builder writes code.
+- Keep neutral SHA-256 custody: recompute hashes yourself after every frozen-artifact change and record them in `relay_log.md`.
+- Gate trust behind fixture or Gate-1 cross-check plus pre-agreed adversarial review. A clean test pass is not sign-off.
+- Route review findings back through a full federation round so each owner verifies findings against their own artifact and owns their bugs.
+- Gate irreversible actions such as deploys, external sends, destructive migrations, or one-shot holdout evaluations behind explicit operator authorization.
+
+For result-bearing evaluations, pre-register methodology, thresholds, and verdict taxonomy before looking at sealed results. Underpowered sealed evidence is `INCONCLUSIVE`, not a silent kill.
+
+## Mechanics
+
+- Use transcripts/state as the clean source. Tmux scrollback is only for liveness because TUI redraws and wrapping corrupt the text.
+- Use nonces for every read. Claude transcript search can otherwise select the coordinator's own Claude session; Codex and Hermes can also have multiple active sessions.
+- `fed_read.py codex` returns Codex `final_answer` blocks when phase tags exist; commentary is not the cross-show source.
+- `fed_read.py hermes` searches `${HERMES_HOME:-~/.hermes}/state.db` and profile `state.db` files for the nonce in a user message, then returns assistant messages from that same session until the next user turn.
+- `fed_send.sh` uses bracketed paste, verifies that text reached the composer, and sends Enter separately. If verification fails, it clears the staged buffer and exits nonzero.
+- `fed_wait.sh` is a liveness hint, not proof of completion. Some agents go pane-idle while sub-work is still running; the nonce read decides whether a real answer has landed.
+
+## Ledger
+
+Keep `$RELAY/relay_log.md` current:
+
+- peer sessions and nonces;
+- phase constraints and operator authorizations;
+- file refs and hashes you recomputed;
+- convergence score and residual deltas each round;
+- decisions, owners, and gates.
+
+The ledger is the round memory. If a fact is load-bearing and not in the ledger or a linked relay artifact, treat it as not yet established.
+
+## Files
+
+- `scripts/fed_sessions.sh`: start/reuse tmux peer sessions for Claude, Codex, and Hermes; prints session names.
+- `scripts/fed_send.sh <session> <msgfile>`: nonce-tag, bracketed-paste, verify, and submit; stdout is the bare nonce.
+- `scripts/fed_read.py <claude|codex|hermes> --nonce N`: return the peer's verbatim answer anchored by nonce.
+- `scripts/fed_wait.sh <session...>`: wait until all listed sessions appear idle.

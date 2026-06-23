@@ -3,8 +3,9 @@
 # for 2 consecutive polls, then exit 0 (prints ALL_IDLE). Run via Bash run_in_background:true
 # so the harness re-invokes you when it returns.
 #
-# Robust busy markers (incl. the narrow-pane truncation of "esc to interrupt"):
-#   esc to int   |  Working (  |  thinking with  |  to interrupt  |  background terminal runni
+# Robust busy markers for Claude, Codex, and Hermes (incl. narrow-pane truncation):
+#   esc to int   |  Working (  |  thinking with  |  to interrupt
+#   background terminal runni
 # NOTE: an agent that spawns its OWN background workflow can go pane-idle while still
 # working — after this returns, re-read the transcript and confirm the answer actually
 # arrived (changed from a "running…" placeholder) before trusting it.
