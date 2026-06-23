@@ -6,30 +6,44 @@
 #   - sends Enter as a SEPARATE keystroke (never embed Enter in the paste)
 #   - on failure: clears the staged buffer and exits 1 (so a retry can't double-paste)
 # STDOUT = the bare nonce (capture it; pass to fed_read.py --nonce). Diagnostics -> STDERR.
-set -uo pipefail
+set -euo pipefail
 
 S="${1:?usage: fed_send.sh <session> <ABSOLUTE-msgfile>}"
 F="${2:?usage: fed_send.sh <session> <ABSOLUTE-msgfile>}"
-[ -f "$F" ] || { echo "ERROR: no such file: $F  (pass an ABSOLUTE path — the shell CWD resets between tool calls)" >&2; exit 2; }
+[ -f "$F" ] || { echo "ERROR: no such file: $F  (pass an ABSOLUTE path; the shell CWD resets between tool calls)" >&2; exit 2; }
+case "$F" in
+  /*) ;;
+  *) echo "ERROR: msgfile must be an absolute path: $F" >&2; exit 2 ;;
+esac
+command -v tmux >/dev/null 2>&1 || { echo "ERROR: tmux not found" >&2; exit 2; }
+tmux has-session -t "$S" 2>/dev/null || { echo "ERROR: no such tmux session: $S" >&2; exit 2; }
 
-nonce="FED-$(date +%s)-${RANDOM}"
+if command -v uuidgen >/dev/null 2>&1; then
+  nonce="FED-$(uuidgen | tr '[:upper:]' '[:lower:]')"
+elif [ -r /proc/sys/kernel/random/uuid ]; then
+  nonce="FED-$(tr '[:upper:]' '[:lower:]' < /proc/sys/kernel/random/uuid)"
+else
+  nonce="FED-$(date +%s)-$$-${RANDOM}-${RANDOM}"
+fi
 tmp="$(mktemp)"
+buf="fedbuf_${nonce}"
+cleanup() {
+  rm -f "$tmp"
+  tmux delete-buffer -b "$buf" 2>/dev/null || true
+}
+trap cleanup EXIT
+
 printf '[[%s]]\n\n' "$nonce" > "$tmp"
 cat "$F" >> "$tmp"
 
-before="$(tmux capture-pane -t "$S" -p 2>/dev/null | wc -c || echo 0)"
-buf="fedbuf_${nonce}"
-tmux load-buffer  -b "$buf" "$tmp"
+tmux load-buffer -b "$buf" "$tmp"
 tmux paste-buffer -t "$S" -b "$buf" -p -d
-rm -f "$tmp"
 sleep 0.7
 
-pane="$(tmux capture-pane -t "$S" -p -S -12 2>/dev/null || true)"
-after="$(printf '%s' "$pane" | wc -c)"
+pane="$(tmux capture-pane -t "$S" -p -S -12 2>/dev/null)"
 staged=0
 printf '%s' "$pane" | grep -qiE 'Pasted (text|Content)|paste again to expand' && staged=1   # Claude TUI chrome
 printf '%s' "$pane" | grep -qF "[[$nonce]]"                                   && staged=1   # any TUI: nonce visible
-[ "${after:-0}" -gt "$(( ${before:-0} + 40 ))" ]                             && staged=1   # composer grew
 
 if [ "$staged" -eq 1 ]; then
   tmux send-keys -t "$S" Enter

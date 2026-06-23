@@ -23,20 +23,22 @@ and creates missing peer sessions automatically.
 
 ## Install
 
-One command installs the skill into the default user skill homes for Claude
-Code, Codex, and Hermes:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/sirouk/federate-skill/main/install.sh | bash
-```
-
-From a clone:
+Recommended from a clone:
 
 ```bash
 git clone https://github.com/sirouk/federate-skill.git
 cd federate-skill
 ./install.sh
 ```
+
+Convenience install from `main`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sirouk/federate-skill/main/install.sh | bash
+```
+
+Use the clone path when you need to inspect the installer first or pin your own
+checkout. The one-line installer executes the current `main` branch.
 
 Install only selected targets:
 
@@ -54,10 +56,14 @@ FEDERATE_DEST="$PWD/.claude/skills/federate" ./install.sh
 Default target paths:
 
 - Claude Code: `~/.claude/skills/federate`
-- Codex: `${CODEX_HOME:-~/.codex}/skills/federate`
+- Codex: `${CODEX_SKILLS_HOME:-~/.agents/skills}/federate`
 - Hermes: `${HERMES_HOME:-~/.hermes}/skills/software-development/federate`
 
-Restart or refresh the agent session after installing, then say `federate`.
+The shell installer targets POSIX/WSL paths. On native Windows, set `HERMES_HOME`
+or install the files under Hermes' native profile directory manually.
+
+Restart or refresh the agent session after installing, then explicitly say
+`federate`.
 
 ## Use
 
@@ -71,8 +77,10 @@ needs independent review. The coordinator will:
 5. Cross-show each peer the other peers' verbatim replies.
 6. Score convergence and bring agreements, deltas, and advice to the operator.
 
-By default the session bootstrap tries `claude`, `codex`, and `hermes`, skipping
-CLIs that are not installed. It requires at least two live peer sessions.
+By default the session bootstrap tries `claude`, `codex`, and `hermes --cli`,
+skipping CLIs that are not installed. It requires at least two live peer
+sessions. Codex metadata disables implicit invocation, so use the skill
+explicitly when you want to spend the extra peer-agent calls.
 
 Runtime overrides:
 
@@ -81,12 +89,18 @@ FED_AGENTS=claude,codex /path/to/federate/scripts/fed_sessions.sh
 FED_CLAUDE_CMD='claude --dangerously-skip-permissions' /path/to/federate/scripts/fed_sessions.sh
 FED_CODEX_CMD='codex --dangerously-bypass-approvals-and-sandbox' /path/to/federate/scripts/fed_sessions.sh
 FED_HERMES_CMD='hermes --cli --yolo' /path/to/federate/scripts/fed_sessions.sh
+FEDERATE_UNSAFE=1 /path/to/federate/scripts/fed_sessions.sh
 ```
+
+Use bypass/yolo modes only inside an external sandbox with no secrets or
+irreversible access.
 
 ## Files
 
 ```text
 SKILL.md
+agents/
+  openai.yaml       Codex UI metadata and explicit-invocation policy
 scripts/
   fed_sessions.sh  create/reuse tmux sessions for Claude, Codex, Hermes
   fed_send.sh      nonce-tag, bracketed-paste, verify, submit

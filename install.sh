@@ -8,12 +8,13 @@
 #   FEDERATE_TARGETS comma-separated targets: claude,codex,hermes,all (default: all)
 #   FEDERATE_DEST    explicit install target; overrides FEDERATE_TARGETS
 #                    e.g. project-scoped: FEDERATE_DEST=$PWD/.claude/skills/federate
+#   CODEX_SKILLS_HOME Codex user skills root (default: ~/.agents/skills)
 #   FEDERATE_RAW     raw base URL when fetching remotely
 #                    (default: https://raw.githubusercontent.com/sirouk/federate-skill/main)
 set -euo pipefail
 
 RAW="${FEDERATE_RAW:-https://raw.githubusercontent.com/sirouk/federate-skill/main}"
-FILES=(SKILL.md scripts/fed_sessions.sh scripts/fed_send.sh scripts/fed_read.py scripts/fed_wait.sh)
+FILES=(SKILL.md agents/openai.yaml scripts/fed_sessions.sh scripts/fed_send.sh scripts/fed_read.py scripts/fed_wait.sh)
 
 # Where am I running from? (a clone has the files next to this script)
 SRC=""
@@ -42,7 +43,7 @@ copy_one() {
 target_path() {
   case "$1" in
     claude) echo "${CLAUDE_HOME:-$HOME/.claude}/skills/federate" ;;
-    codex) echo "${CODEX_HOME:-$HOME/.codex}/skills/federate" ;;
+    codex) echo "${CODEX_SKILLS_HOME:-$HOME/.agents/skills}/federate" ;;
     hermes) echo "${HERMES_HOME:-$HOME/.hermes}/skills/software-development/federate" ;;
     *) echo "ERROR: unknown target '$1' (use claude,codex,hermes,all or FEDERATE_DEST)" >&2; exit 2 ;;
   esac

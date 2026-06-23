@@ -18,6 +18,7 @@ Usage:
   fed_read.py hermes --nonce FED-123-456
 """
 import sys, os, json, glob, argparse, sqlite3
+import re
 from pathlib import Path
 
 
@@ -66,6 +67,24 @@ def norm(s):
     return " ".join((s or "").split())
 
 
+def validate_nonce(key):
+    return bool(re.fullmatch(r"FED-[A-Za-z0-9][A-Za-z0-9_.:-]{8,}", key or ""))
+
+
+def nonce_marker(key):
+    return f"[[{key}]]"
+
+
+def has_nonce_marker(text, key):
+    marker = nonce_marker(key)
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        return stripped == marker
+    return False
+
+
 # ---- Claude transcript: units = (idx, role, text) ----
 def c_role(o):
     return (o.get("message") or {}).get("role") or o.get("type")
@@ -109,11 +128,11 @@ def codex_turn(units, j):
             break
         if role == "assistant" and t.strip():
             asst.append((t, phase))
-    finals = [t for t, ph in asst if ph == "final_answer"]
+    finals = [t for t, ph in asst if ph in ("final_answer", "final")]
     if finals:
         return "\n\n".join(finals)
     if any(ph for _, ph in asst):     # phases present but no final_answer yet = still narrating
-        return "\n\n".join(t for t, _ in asst)
+        return ""
     return asst[-1][0] if asst else ""  # legacy rollout (no phase tags): last assistant item
 
 
@@ -159,8 +178,11 @@ def hermes_state_paths():
     return sorted(existing, key=lambda p: p.stat().st_mtime, reverse=True)
 
 
-def like_escape(s):
-    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+def table_columns(con, table):
+    try:
+        return {row["name"] for row in con.execute(f"PRAGMA table_info({table})")}
+    except sqlite3.Error:
+        return set()
 
 
 def hermes_query_turn(db_path, key=None):
@@ -168,40 +190,35 @@ def hermes_query_turn(db_path, key=None):
     con = sqlite3.connect(uri, uri=True, timeout=1)
     con.row_factory = sqlite3.Row
     try:
+        columns = table_columns(con, "messages")
+        active_clause = "AND active = 1 " if "active" in columns else ""
         anchor = None
         if key:
-            anchor = con.execute(
-                "SELECT id, session_id FROM messages "
-                "WHERE role = 'user' AND COALESCE(content, '') LIKE ? ESCAPE '\\' "
-                "ORDER BY id DESC LIMIT 1",
-                (f"%{like_escape(key)}%",),
-            ).fetchone()
-            if not anchor:
-                # Hermes stores multimodal/structured content as NUL-prefixed
-                # JSON. SQLite LIKE does not reliably match past the NUL, so
-                # decode user rows in Python as a correctness fallback.
-                for row in con.execute(
-                    "SELECT id, session_id, content FROM messages "
-                    "WHERE role = 'user' ORDER BY id DESC"
-                ):
-                    if key in norm(text_of(row["content"])):
-                        anchor = row
-                        break
+            # Decode in Python and require the first non-empty line to be the
+            # exact nonce marker. Substring matching can select later cross
+            # briefs that quote an old nonce.
+            for row in con.execute(
+                "SELECT id, session_id, content FROM messages "
+                f"WHERE role = 'user' {active_clause}ORDER BY id DESC"
+            ):
+                if has_nonce_marker(text_of(row["content"]), key):
+                    anchor = row
+                    break
         else:
             anchor = con.execute(
                 "SELECT id, session_id FROM messages "
-                "WHERE role = 'user' AND COALESCE(content, '') != '' "
+                f"WHERE role = 'user' {active_clause}AND COALESCE(content, '') != '' "
                 "ORDER BY id DESC LIMIT 1"
             ).fetchone()
         if not anchor:
             return None
 
         def rows_after(active=True):
-            active_clause = "AND active = 1 " if active else ""
+            row_active_clause = "AND active = 1 " if active and "active" in columns else ""
             return con.execute(
                 "SELECT id, role, content FROM messages "
                 "WHERE session_id = ? AND id > ? "
-                f"{active_clause}ORDER BY id",
+                f"{row_active_clause}ORDER BY id",
                 (anchor["session_id"], anchor["id"]),
             ).fetchall()
 
@@ -239,7 +256,8 @@ def hermes_read(key=None):
             session_id, turn = found
             sys.stderr.write(f"[fed_read hermes] {p} session={session_id}\n")
             if not turn.strip():
-                sys.stderr.write("[fed_read] WARNING: matched nonce but the turn is EMPTY — agent may still be working.\n")
+                sys.stderr.write("[fed_read] ERROR: matched nonce but the turn is EMPTY — agent may still be working.\n")
+                sys.exit(4)
             print(turn)
             return
     if key:
@@ -258,22 +276,30 @@ def main():
     ap.add_argument("agent", choices=["claude", "codex", "hermes"])
     ap.add_argument("--nonce")
     ap.add_argument("--match-file")
+    ap.add_argument("--unsafe-latest", action="store_true", help="debug only: read the latest turn without a nonce")
     a = ap.parse_args()
 
     key = a.nonce
     if not key and a.match_file and os.path.exists(a.match_file):
         key = norm(open(a.match_file, errors="replace").read())[:80]
+    if not key and not a.unsafe_latest:
+        sys.stderr.write("ERROR: --nonce is required. Use --unsafe-latest only for manual debugging.\n")
+        sys.exit(2)
+    if key and not validate_nonce(key):
+        sys.stderr.write(f"ERROR: invalid nonce format: {key!r}\n")
+        sys.exit(2)
 
     if a.agent == "hermes":
-        if not key:
-            sys.stderr.write("[fed_read] WARNING: no --nonce; falling back to the most-recent Hermes user turn.\n")
+        if a.unsafe_latest:
+            sys.stderr.write("[fed_read] WARNING: --unsafe-latest; reading the most-recent Hermes user turn.\n")
         hermes_read(key)
         return
 
     if a.agent == "claude":
         paths = sorted(glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl")), key=os.path.getmtime, reverse=True)
     else:
-        paths = sorted(glob.glob(os.path.expanduser("~/.codex/sessions/**/rollout-*.jsonl"), recursive=True), key=os.path.getmtime, reverse=True)
+        codex_home = os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex")
+        paths = sorted(glob.glob(os.path.join(os.path.expanduser(codex_home), "sessions/**/rollout-*.jsonl"), recursive=True), key=os.path.getmtime, reverse=True)
     if not paths:
         sys.stderr.write(f"ERROR: no {a.agent} transcript found\n"); sys.exit(2)
 
@@ -287,13 +313,14 @@ def main():
             j = None
             for k in range(len(units) - 1, -1, -1):
                 role, t = role_text(units, k, a.agent)
-                if role == "user" and key in norm(t):
+                if role == "user" and has_nonce_marker(t, key):
                     j = k; break
             if j is not None:
                 sys.stderr.write(f"[fed_read {a.agent}] {p}\n")
                 turn = turn_of(units, j)
                 if not turn.strip():
-                    sys.stderr.write("[fed_read] WARNING: matched nonce but the turn is EMPTY — agent may still be working.\n")
+                    sys.stderr.write("[fed_read] ERROR: matched nonce but the turn is EMPTY — agent may still be working.\n")
+                    sys.exit(4)
                 print(turn); return
         sys.stderr.write(
             f"ERROR: nonce {key!r} NOT FOUND in any {a.agent} transcript — the agent has not replied yet "
@@ -302,8 +329,8 @@ def main():
         )
         sys.exit(3)
 
-    # No key: DISCOURAGED fallback (for claude this is usually the coordinator's OWN session).
-    sys.stderr.write("[fed_read] WARNING: no --nonce; falling back to most-recent transcript. Pass the nonce fed_send printed.\n")
+    # No key: explicit unsafe fallback for manual debugging only.
+    sys.stderr.write("[fed_read] WARNING: --unsafe-latest; falling back to most-recent transcript.\n")
     units = units_of(load(paths[0]))
     j = None
     for k in range(len(units) - 1, -1, -1):

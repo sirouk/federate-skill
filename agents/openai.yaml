@@ -1,0 +1,7 @@
+interface:
+  display_name: "Federate"
+  short_description: "Cross-agent review and synthesis"
+  default_prompt: "Use $federate to run a cross-agent review round before a consequential decision."
+
+policy:
+  allow_implicit_invocation: false
