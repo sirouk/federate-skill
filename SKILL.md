@@ -36,17 +36,18 @@ mode, and expected extra cost/time.
 One invocation means one complete federation iteration:
 
 1. Check whether the installed skill is current.
-2. Bootstrap peer tmux sessions.
-3. Frame the object and rails.
-4. Send to all peers independently before reading any peer.
-5. Cross-pollinate each peer with the other peers' verbatim replies.
-6. Collect cross-pollinated replies, including revised confidence.
-7. Judge convergence confidence adaptively from the peer intelligence and
+2. Create a relay workspace and thread-scoped `FED_NS`.
+3. Bootstrap peer tmux sessions inside that namespace.
+4. Frame the object and rails.
+5. Send to all peers independently before reading any peer.
+6. Cross-pollinate each peer with the other peers' verbatim replies.
+7. Collect cross-pollinated replies, including revised confidence.
+8. Judge convergence confidence adaptively from the peer intelligence and
    synthesize the barycenter of the result.
-8. If convergence is not high enough for the current bounded decision, run
+9. If convergence is not high enough for the current bounded decision, run
    another complete round without asking, up to three rounds total for the
    iteration.
-9. Return the synthesis with a short convergence note, or advance one bounded
+10. Return the synthesis with a short convergence note, or advance one bounded
    step if the user delegated project-owner judgment.
 
 ## Modes
@@ -128,36 +129,63 @@ installed skill payload for the current coordinator host.
 
 ## Bootstrap Peers
 
-Always run `scripts/fed_sessions.sh` first in a thread or after any uncertainty about live peer sessions. Do not ask the operator to start tmux. The script starts the tmux server if needed, reuses managed `claude-*`, `codex-*`, and `hermes-*` sessions tagged by the script, and creates missing sessions for installed CLIs. It does not reuse untagged sessions unless `FED_REUSE_UNMANAGED=1` is set.
+After creating `$RELAY`, run `scripts/fed_sessions.sh` before any send and after
+any uncertainty about live peer sessions. Do not ask the operator to start tmux.
+The script starts the tmux server if needed, reuses only matching namespaced
+managed sessions, and creates missing sessions for installed CLIs.
+
+For skill-driven federation, always pass a thread-scoped namespace derived from
+the relay directory. This prevents one project, thread, or iteration from
+reusing another one's peer panes:
 
 Use the `scripts/` directory next to this `SKILL.md`:
 
 ```bash
-/absolute/path/to/federate/scripts/fed_sessions.sh
+FED_NS="$(basename "$RELAY")" /absolute/path/to/federate/scripts/fed_sessions.sh
 ```
+
+If `FED_NS` is omitted, the helper falls back to a project-scoped namespace for
+manual shell use and warns that it is not thread-isolated.
 
 Defaults are yolo/no-prompt for federation peers:
 
-- `claude-*`: `IS_SANDBOX=1 claude --dangerously-skip-permissions`
-- `codex-*`: `codex --dangerously-bypass-approvals-and-sandbox`
-- `hermes-*`: `hermes --cli --yolo`
+- `fed-<ns>-claude-*`: `IS_SANDBOX=1 claude --dangerously-skip-permissions`
+- `fed-<ns>-codex-*`: `codex --dangerously-bypass-approvals-and-sandbox`
+- `fed-<ns>-hermes-*`: `hermes --cli --yolo`
 
 Runtime controls:
 
 - `FED_AGENTS=claude,codex` limits the runtime peer set; positional args work too: `fed_sessions.sh claude codex`. This is independent of where the skill is installed.
+- `FED_NS` sets the federation/thread namespace. Skill-driven runs must set it
+  from `$RELAY`; manual runs fall back to project scope.
+- `FED_NS_ROOT` overrides the canonical project root. By default the script
+  uses `git rev-parse --show-toplevel`, else `pwd -P`.
 - `FED_CLAUDE_CMD`, `FED_CODEX_CMD`, and `FED_HERMES_CMD` override launch commands.
 - Use explicit `FED_*_CMD` overrides only when you intentionally want prompt mode
   or a custom model/profile. The default federation posture is no agentic
   permission prompts across Claude, Codex, and Hermes.
-- `FED_REUSE_UNMANAGED=1` allows reuse of pre-existing untagged `claude-*`, `codex-*`, or `hermes-*` sessions after you verify they are the intended peer sessions.
+- Legacy global `claude-*`, `codex-*`, or `hermes-*` sessions are skipped by
+  default. `FED_REUSE_LEGACY=1` allows adopting old federate-managed sessions
+  after you verify they are safe.
+- `FED_REUSE_UNMANAGED=1` allows adopting pre-existing untagged sessions after
+  you verify they are the intended peers.
+- Legacy/unmanaged adoption refuses attached or busy sessions unless
+  `FED_REUSE_ATTACHED=1` or `FED_REUSE_BUSY=1` is set.
+- `FED_REUSE_FOREIGN_ROOT=1` allows explicit-namespace reuse across different
+  roots. Do not use it unless you intentionally share peers across projects.
 - `FED_TMUX_WIDTH` and `FED_TMUX_HEIGHT` override the default wide panes.
 
-The script prints `FEDERATE_DIR=...` and one variable per available peer, such as `CLAUDE_SESSION=claude-0`, `CODEX_SESSION=codex-0`, and `HERMES_SESSION=hermes-0`. Use those literal session names in later commands; shell variables do not persist between tool calls. If fewer than two peers are available, stop and report the missing CLI/authentication requirement.
+The script prints `FEDERATE_DIR=...`, `FED_NS=...`, `FED_NS_ROOT=...`, and one
+variable per available peer, such as `CLAUDE_SESSION=fed-<ns>-claude-0`. Record
+the printed namespace, root, and literal session names in `relay_log.md`. Use
+those literal session names in later commands; shell variables do not persist
+between tool calls. If fewer than two peers are available, stop and report the
+missing CLI/authentication requirement.
 
 Preflight every session, new or reused. Confirm live composer, idle state, expected project/cwd, account/model, permission mode, and no pending prompt. If the script prints `CREATED`, the CLI is still booting. Wait about 10 seconds, then inspect the pane before first send:
 
 ```bash
-tmux capture-pane -t claude-0 -p | tail -5
+tmux capture-pane -t "<printed-claude-session>" -p | tail -5
 ```
 
 Proceed only when the composer is live. If `fed_send.sh` reports `ERROR: paste not detected`, the peer is not ready or is busy; wait and retry.
@@ -165,11 +193,14 @@ Proceed only when the composer is live. If `fed_send.sh` reports `ERROR: paste n
 ## Relay Workspace
 
 Create one relay directory outside the project under review and reuse it for the
-whole iteration:
+whole iteration. Do this immediately after the update check and before
+bootstrapping peers because the relay name becomes the thread namespace:
 
 ```bash
 umask 077
-RELAY=~/relay/$(date +%Y%m%d_%H%M%S); mkdir -p -m 700 "$RELAY"
+mkdir -p -m 700 "$HOME/relay"
+RELAY="$(mktemp -d "$HOME/relay/$(date +%Y%m%d_%H%M%S).XXXXXX")"
+chmod 700 "$RELAY"
 ```
 
 Write briefs, verbatim reads, cross-show files, hashes, and `relay_log.md` there. Relay files can contain proprietary code, prompts, peer output, and secrets accidentally included by peers; keep permissions restrictive and clean them up when retention is no longer needed. Never write relay artifacts into the project under audit.
@@ -282,17 +313,17 @@ always requires explicit operator authorization.
 Send to every available peer before reading any peer. Capture a fresh nonce for each send; never reuse a nonce.
 
 ```bash
-/absolute/path/to/federate/scripts/fed_send.sh claude-0 "$RELAY/brief_claude.md" > "$RELAY/nonce_claude"
-/absolute/path/to/federate/scripts/fed_send.sh codex-0 "$RELAY/brief_codex.md" > "$RELAY/nonce_codex"
+/absolute/path/to/federate/scripts/fed_send.sh "<printed-claude-session>" "$RELAY/brief_claude.md" > "$RELAY/nonce_claude"
+/absolute/path/to/federate/scripts/fed_send.sh "<printed-codex-session>" "$RELAY/brief_codex.md" > "$RELAY/nonce_codex"
 # only if HERMES_SESSION was printed:
-/absolute/path/to/federate/scripts/fed_send.sh hermes-0 "$RELAY/brief_hermes.md" > "$RELAY/nonce_hermes"
+/absolute/path/to/federate/scripts/fed_send.sh "<printed-hermes-session>" "$RELAY/brief_hermes.md" > "$RELAY/nonce_hermes"
 ```
 
 Wait for the sessions you actually sent to:
 
 ```bash
-/absolute/path/to/federate/scripts/fed_wait.sh claude-0 codex-0
-# include hermes-0 only if you sent to it
+/absolute/path/to/federate/scripts/fed_wait.sh "<printed-claude-session>" "<printed-codex-session>"
+# include the printed Hermes session only if you sent to it
 ```
 
 Then read by nonce from transcripts/state, not tmux scrollback:
@@ -420,6 +451,9 @@ For result-bearing evaluations, pre-register methodology, thresholds, and verdic
 - `fed_send.sh` uses bracketed paste, places the nonce at the top and bottom of
   the brief for reliable composer verification, and sends Enter separately. If
   verification fails, it clears the staged buffer and exits nonzero.
+- `fed_send.sh` refuses to paste into sessions that are not namespaced
+  federate-managed peers unless `FED_SKIP_OWNER_CHECK=1` is set for manual
+  debugging.
 - `fed_wait.sh` is a liveness hint, not proof of completion. Some agents go pane-idle while sub-work is still running; the nonce read decides whether a real answer has landed.
 - `fed_update_check.sh` compares `.federate-install.json` to the recorded
   source/ref and can update the installed payload in place with `--apply`.
@@ -431,6 +465,7 @@ For result-bearing evaluations, pre-register methodology, thresholds, and verdic
 Keep `$RELAY/relay_log.md` current:
 
 - peer sessions and nonces;
+- `FED_NS`, `FED_NS_ROOT`, and peer session names printed by `fed_sessions.sh`;
 - phase constraints and operator authorizations;
 - delegated project-owner mode, if any, including plan-following vs federated
   steering confirmation and the user preferences used as steering context;
@@ -443,7 +478,7 @@ The ledger is the round memory. If a fact is load-bearing and not in the ledger 
 
 ## Files
 
-- `scripts/fed_sessions.sh`: start/reuse tmux peer sessions for Claude, Codex, and Hermes; prints session names.
+- `scripts/fed_sessions.sh`: start/reuse namespaced tmux peer sessions for Claude, Codex, and Hermes; prints namespace, root, and session names.
 - `scripts/fed_send.sh <session> <msgfile>`: nonce-tag, bracketed-paste, verify, and submit; stdout is the bare nonce.
 - `scripts/fed_read.py <claude|codex|hermes> --nonce N`: return the peer's verbatim answer anchored by nonce.
 - `scripts/fed_wait.sh <session...>`: wait until all listed sessions appear idle.

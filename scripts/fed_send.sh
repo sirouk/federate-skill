@@ -18,6 +18,46 @@ esac
 command -v tmux >/dev/null 2>&1 || { echo "ERROR: tmux not found" >&2; exit 2; }
 tmux has-session -t "$S" 2>/dev/null || { echo "ERROR: no such tmux session: $S" >&2; exit 2; }
 
+sanitize_ns() {
+  ns="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g' | cut -c1-48)"
+  if [ -n "$ns" ]; then
+    printf '%s\n' "$ns"
+  else
+    printf 'fed\n'
+  fi
+}
+
+canonical_root() {
+  (cd "$1" 2>/dev/null && pwd -P) || printf '%s\n' "$1"
+}
+
+if [ "${FED_SKIP_OWNER_CHECK:-0}" != "1" ]; then
+  stored_agent="$(tmux show-options -qv -t "$S" @federate_agent 2>/dev/null || true)"
+  stored_ns="$(tmux show-options -qv -t "$S" @federate_ns 2>/dev/null || true)"
+  stored_root="$(tmux show-options -qv -t "$S" @federate_root 2>/dev/null || true)"
+  [ -n "$stored_agent" ] && [ -n "$stored_ns" ] && [ -n "$stored_root" ] || {
+    echo "ERROR: $S is not a namespaced federate-managed session. Run fed_sessions.sh first, or set FED_SKIP_OWNER_CHECK=1 for manual debugging." >&2
+    exit 2
+  }
+
+  expected_ns_input="${FED_NS:-${FEDERATE_NS:-}}"
+  if [ -n "$expected_ns_input" ]; then
+    expected_ns="$(sanitize_ns "$expected_ns_input")"
+    [ "$stored_ns" = "$expected_ns" ] || {
+      echo "ERROR: $S belongs to FED_NS=$stored_ns, not FED_NS=$expected_ns. Refusing to paste into a foreign federation session." >&2
+      exit 2
+    }
+  fi
+
+  if [ -n "${FED_NS_ROOT:-}" ]; then
+    expected_root="$(canonical_root "$FED_NS_ROOT")"
+    [ "$stored_root" = "$expected_root" ] || {
+      echo "ERROR: $S belongs to root $stored_root, not $expected_root. Refusing to paste into a foreign federation session." >&2
+      exit 2
+    }
+  fi
+fi
+
 if command -v uuidgen >/dev/null 2>&1; then
   nonce="FED-$(uuidgen | tr '[:upper:]' '[:lower:]')"
 elif [ -r /proc/sys/kernel/random/uuid ]; then

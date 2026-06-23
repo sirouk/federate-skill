@@ -31,7 +31,7 @@ disagreements are the work queue.
 - `bash`, `python3`, and standard Unix tools
 
 You do not need to start tmux yourself. `fed_sessions.sh` starts the tmux server
-and creates missing peer sessions automatically.
+and creates missing namespaced peer sessions automatically.
 
 ## Install
 
@@ -136,16 +136,18 @@ The coordinator will:
 
 1. Run `scripts/fed_update_check.sh` and update first if the installed commit is
    stale.
-2. Run `scripts/fed_sessions.sh` to create/reuse peer tmux sessions.
-3. Write one brief per peer in a relay directory outside the project.
-4. Send all briefs before reading any answer.
-5. Read each peer by nonce from transcript/state, not tmux scrollback.
-6. Cross-show each peer the other peers' verbatim replies and confidence by
+2. Create a relay directory outside the project and derive `FED_NS` from it.
+3. Run `FED_NS="$(basename "$RELAY")" scripts/fed_sessions.sh` to create/reuse
+   peer tmux sessions scoped to that federation thread.
+4. Write one brief per peer in the relay directory.
+5. Send all briefs before reading any answer.
+6. Read each peer by nonce from transcript/state, not tmux scrollback.
+7. Cross-show each peer the other peers' verbatim replies and confidence by
    default.
-7. Collect the cross-pollinated replies, including revised confidence.
-8. Run another complete round when convergence is not high enough for the
+8. Collect the cross-pollinated replies, including revised confidence.
+9. Run another complete round when convergence is not high enough for the
    current bounded decision, up to three rounds for the iteration.
-9. Bring back the synthesis with a short convergence note: confidence,
+10. Bring back the synthesis with a short convergence note: confidence,
    round count, why confidence is high enough or not, trend when relevant, and
    the main residual delta.
 
@@ -185,17 +187,21 @@ seals the failing test, fixture, oracle, assertion, or precise expected behavior
 before implementation begins. Then an implementation owner edits, and a separate
 reviewer/verifier checks the result when enough peers are available.
 
-By default the session bootstrap uses no-prompt/yolo peer commands:
+By default the session bootstrap uses namespaced no-prompt/yolo peer commands:
 `IS_SANDBOX=1 claude --dangerously-skip-permissions`,
 `codex --dangerously-bypass-approvals-and-sandbox`, and
 `hermes --cli --yolo`, skipping CLIs that are not installed. It requires at
 least two live peer sessions. Codex metadata disables implicit invocation, so
 use the skill explicitly when you want to spend the extra peer-agent calls.
+Session names look like `fed-<ns>-claude-0`; use the names printed by
+`fed_sessions.sh`, not hard-coded `claude-0` or `codex-0`.
 
 Runtime overrides:
 
 ```bash
+FED_NS="$(basename "$RELAY")" /path/to/federate/scripts/fed_sessions.sh
 FED_AGENTS=claude,codex /path/to/federate/scripts/fed_sessions.sh
+FED_NS_ROOT=/path/to/project /path/to/federate/scripts/fed_sessions.sh
 FED_CLAUDE_CMD='claude' /path/to/federate/scripts/fed_sessions.sh
 FED_CODEX_CMD='codex' /path/to/federate/scripts/fed_sessions.sh
 FED_HERMES_CMD='hermes --cli' /path/to/federate/scripts/fed_sessions.sh
@@ -204,6 +210,13 @@ FED_HERMES_CMD='hermes --cli' /path/to/federate/scripts/fed_sessions.sh
 Use explicit `FED_*_CMD` overrides only when you intentionally want prompt mode
 or a custom model/profile. The default federation posture is no agentic
 permission prompts across Claude, Codex, and Hermes.
+
+If `FED_NS` is omitted, the helper falls back to a project-scoped namespace for
+manual shell use and warns that it is not thread-isolated. Old global
+`claude-*`, `codex-*`, and `hermes-*` sessions are skipped by default. Adopt
+them only when intentional with `FED_REUSE_LEGACY=1` or
+`FED_REUSE_UNMANAGED=1`; attached or busy adoption also requires
+`FED_REUSE_ATTACHED=1` or `FED_REUSE_BUSY=1`.
 
 ## Files
 
@@ -234,6 +247,9 @@ install.sh         install into Claude, Codex, and Hermes skill homes
 - `fed_send.sh` inserts the nonce at the top and bottom of a brief. The top
   nonce anchors transcript/state reads; the bottom nonce makes long tmux pastes
   easier to verify before Enter is sent.
+- `fed_send.sh` refuses to paste into sessions that are not namespaced
+  federate-managed peers unless `FED_SKIP_OWNER_CHECK=1` is set for manual
+  debugging.
 - Token conservation helps most when peers produce compact, evidence-dense
   original answers. Do not post-process peer replies into compressed prose
   before cross-pollination; that can delete uncertainty, minority reports,
