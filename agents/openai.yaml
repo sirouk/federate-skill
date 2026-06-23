@@ -1,7 +1,7 @@
 interface:
   display_name: "Federate"
   short_description: "Cross-agent convergence loop"
-  default_prompt: "Use $federate to run a full federation iteration: independent peer review, cross-pollination, convergence confidence, and synthesis."
+  default_prompt: "Use $federate to run a full federation iteration: independent peer confidence poll, cross-pollination, revised confidence, and synthesis."
 
 policy:
   allow_implicit_invocation: false

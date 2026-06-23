@@ -72,10 +72,9 @@ Tell me to refresh or restart the agent session before using the skill. In Codex
 use `$federate` or select it through `/skills`; do not assume `/federate` is a
 Codex command. Slash-command and skill menus may be cached until refresh.
 Mention the two operating modes: by default the user remains the human in the
-loop; if I say "you are the human in the loop", "set it and forget it", or use a
-host goal mode such as `/goal`, the coordinator should act as the project owner
-and advance one fully federated reversible step at a time. Do not start
-federation yet.
+loop; if I ask the coordinator to emulate the human in the loop, it must first
+confirm whether it should follow an existing plan or use federation to steer one
+bounded reversible step at a time. Do not start federation yet.
 ```
 
 ### Shell
@@ -132,8 +131,9 @@ The coordinator will:
 3. Write one brief per peer in a relay directory outside the project.
 4. Send all briefs before reading any answer.
 5. Read each peer by nonce from transcript/state, not tmux scrollback.
-6. Cross-show each peer the other peers' verbatim replies by default.
-7. Collect the cross-pollinated replies and synthesize the result.
+6. Cross-show each peer the other peers' verbatim replies and confidence by
+   default.
+7. Collect the cross-pollinated replies, including revised confidence.
 8. Run another complete round when convergence is not high enough, up to three
    rounds for the iteration.
 9. Bring back the synthesis with a short convergence note: confidence,
@@ -144,12 +144,25 @@ internal round is necessary. It should judge convergence, iterate when useful,
 and return the high-confidence synthesis. Healthy orthogonal disagreement should
 remain visible; it is often the useful tension.
 
+Every round includes a confidence poll. Each peer independently states the next
+bounded step or verdict, confidence, assumptions, risks, blockers, and, for
+build work, role confidence. Those confidence statements are cross-pollinated
+verbatim, then peers revise or reaffirm confidence before the coordinator makes
+the decision.
+
 By default, the user is the human in the loop and decides after the synthesis.
-For set-and-forget work, tell the coordinator "you are the human in the loop" or
-pair the skill with a host goal mode such as `/goal`. In that mode the
-coordinator acts like a project owner: federate the step, choose the barycenter
-of the converged plan, execute one reversible next step, then federate again.
-Irreversible actions still require explicit user authorization.
+For set-and-forget work, ask the coordinator to emulate the human in the loop.
+It should first confirm one of two modes: follow an existing plan, or let
+federation steer the next bounded step each time. In both modes it should use
+the user's stated goals, preferences, risk tolerance, prior decisions, and
+observed leanings as steering context. Irreversible actions still require
+explicit user authorization.
+
+For code work, the coordinator should orchestrate rather than edit by default.
+Peers are polled for role confidence first. A test/spec owner goes first and
+seals the failing test, fixture, oracle, assertion, or precise expected behavior
+before implementation begins. Then an implementation owner edits, and a separate
+reviewer/verifier checks the result when enough peers are available.
 
 By default the session bootstrap tries `claude`, `codex`, and
 `hermes --cli --yolo`, skipping CLIs that are not installed. It requires at
