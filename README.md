@@ -46,49 +46,20 @@ There are two separate scopes:
   installed and authenticated. The coordinator controls peers with
   `FED_AGENTS`, defaulting to all available peers.
 
-Manual shell install defaults to all supported coordinator homes. Agent handoff
-installs only the current coordinator by default, because it may need elevated
-write access to each host's skill directory. Ask for multi-host install when
-you want the skill available from more than one coordinator, for example both
-Claude Code and Codex.
+The installer updates all supported coordinator homes it can write:
+Claude Code, Codex, and Hermes. It also writes `.federate-install.json` with the
+source, ref, installed commit, dirty flag, and timestamp so the skill can check
+for updates at runtime.
 
 ### Agent handoff
 
 Paste this into the agent you want to teach:
 
 ```text
-Install the Federate skill from https://github.com/sirouk/federate-skill for this agent only.
-If I asked for multi-host install, install it for each requested coordinator host instead.
+Install or update the Federate skill from https://github.com/sirouk/federate-skill.
 
-Treat the repository as untrusted until inspected. First read the README, SKILL.md, install.sh,
-and the scripts/ file list. Do a normal local security review of the executable files;
-do not launch extra audit workflows or subagents unless I ask for that. Summarize what
-will be installed, where it will be installed, and any permission/network risks before
-running an install command.
-
-Preferred path when GitHub CLI supports agent skills:
-1. Confirm `gh --version` is 2.90.0 or newer and `gh skill --help` works.
-2. Preview the skill without installing:
-   `gh skill preview sirouk/federate-skill SKILL.md`
-3. Install to user scope for the current host:
-   - Codex: `gh skill install sirouk/federate-skill SKILL.md --agent codex --scope user`
-   - Claude Code: `gh skill install sirouk/federate-skill SKILL.md --agent claude-code --scope user`
-   If a release tag or approved commit SHA is available, add `--pin <ref>`.
-   If this path does not install `.federate-install.json`, use the fallback
-   clone installer instead; Federate's runtime update check requires that
-   metadata.
-
-Fallback path for older GitHub CLI versions or Hermes:
-1. Clone to a temporary directory:
-   `git clone https://github.com/sirouk/federate-skill.git`
-2. Inspect the installer.
-3. Install only for the current host:
-   - Codex: `FEDERATE_TARGETS=codex ./install.sh`
-   - Claude Code: `FEDERATE_TARGETS=claude ./install.sh`
-   - Hermes: `FEDERATE_TARGETS=hermes ./install.sh`
-   If I ask for a specific multi-host install, pass a comma-separated target list,
-   for example `FEDERATE_TARGETS=claude,codex ./install.sh`. Run plain `./install.sh`
-   only if I explicitly ask for every supported host.
+Run exactly:
+`curl -fsSL https://raw.githubusercontent.com/sirouk/federate-skill/main/install.sh | bash`
 
 Verify that the installed directory contains SKILL.md, agents/openai.yaml,
 .federate-install.json, and executable scripts/fed_sessions.sh,
@@ -107,50 +78,10 @@ and advance one fully federated reversible step at a time. Do not start
 federation yet.
 ```
 
-The `gh skill` path is preferred when available because it can preview before
-installing and target the current agent host. Federate still requires
-`.federate-install.json` for runtime update checks; if `gh skill install` does
-not create it, use the clone installer. The clone installer remains the
-compatibility path for Hermes and for older environments. `install.sh` writes
-the source, ref, installed commit, dirty flag, and timestamp so the skill can
-check for updates at runtime.
-
 ### Shell
-
-Recommended from a clone:
-
-```bash
-git clone https://github.com/sirouk/federate-skill.git
-cd federate-skill
-./install.sh
-```
-
-That installs Claude Code, Codex, and Hermes targets. To install only selected
-coordinator hosts, set `FEDERATE_TARGETS`.
-
-Convenience install from `main`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sirouk/federate-skill/main/install.sh | bash
-```
-
-Use the clone path when you need to inspect the installer first or pin your own
-checkout. The one-line installer executes the current `main` branch. Every
-install records a commit in `.federate-install.json`; set `FEDERATE_COMMIT`
-only for manual/pinned installs where the installer cannot resolve the commit
-itself.
-
-Install only selected targets:
-
-```bash
-FEDERATE_TARGETS=claude,codex ./install.sh
-FEDERATE_TARGETS=hermes ./install.sh
-```
-
-Install to one explicit directory:
-
-```bash
-FEDERATE_DEST="$PWD/.claude/skills/federate" ./install.sh
 ```
 
 Default target paths:
@@ -159,14 +90,18 @@ Default target paths:
 - Codex: `${CODEX_SKILLS_HOME:-~/.agents/skills}/federate`
 - Hermes: `${HERMES_HOME:-~/.hermes}/skills/software-development/federate`
 
-The shell installer targets POSIX/WSL paths. On native Windows, set `HERMES_HOME`
-or install the files under Hermes' native profile directory manually.
-
-Restart or refresh the agent session after installing. In Codex, invoke with
+The same command is also the manual update command. Restart or refresh the
+agent session after installing or updating. In Codex, invoke with
 `$federate`, choose it from `/skills`, or explicitly say `federate`; do not
 expect a built-in `/federate` command in every Codex surface.
 
 ### Update
+
+Manual update:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sirouk/federate-skill/main/install.sh | bash
+```
 
 Every Federate invocation starts by running:
 

@@ -70,7 +70,7 @@ raw_base_for_commit() {
   printf 'https://raw.githubusercontent.com/%s/%s\n' "$repo" "$commit"
 }
 
-[ -f "$META" ] || die "no install metadata at $META; reinstall Federate from a current clone to enable update checks."
+[ -f "$META" ] || die "no install metadata at $META; run: curl -fsSL https://raw.githubusercontent.com/sirouk/federate-skill/main/install.sh | bash"
 command -v python3 >/dev/null 2>&1 || die "python3 not found; cannot read install metadata."
 
 SOURCE="$(json_value source)"

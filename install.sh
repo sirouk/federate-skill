@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # install.sh — install the "federate" skill for Claude Code, Codex, and Hermes.
 #
-#   From a clone: ./install.sh
-#   Remote:       curl -fsSL https://raw.githubusercontent.com/sirouk/federate-skill/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/sirouk/federate-skill/main/install.sh | bash
 #
 # Env overrides:
 #   FEDERATE_TARGETS comma-separated targets: claude,codex,hermes,all (default: all)
@@ -22,7 +21,7 @@ REF="${FEDERATE_REF:-main}"
 RAW="${FEDERATE_RAW:-https://raw.githubusercontent.com/sirouk/federate-skill/$REF}"
 FILES=(SKILL.md agents/openai.yaml scripts/fed_sessions.sh scripts/fed_send.sh scripts/fed_read.py scripts/fed_wait.sh scripts/fed_update_check.sh)
 
-# Where am I running from? (a clone has the files next to this script)
+# Where am I running from? (local development has files next to this script)
 SRC=""
 if [ -n "${BASH_SOURCE[0]:-}" ]; then
   if src_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"; then
@@ -127,7 +126,7 @@ INSTALL_REF="$(install_ref)"
 INSTALL_SOURCE="$(install_source)"
 DIRTY="$(install_dirty)"
 if [ -z "$COMMIT" ]; then
-  echo "ERROR: could not resolve the Federate source commit. Install from a git clone, keep network access for source lookup, or set FEDERATE_COMMIT." >&2
+  echo "ERROR: could not resolve the Federate source commit. Use the documented curl installer with network access, or set FEDERATE_COMMIT." >&2
   exit 1
 fi
 if [ -z "${FEDERATE_RAW:-}" ]; then
@@ -181,7 +180,7 @@ if [ -z "${SRC:-}" ] || [ ! -f "$SRC/SKILL.md" ]; then
   echo "Installing from raw URL: $RAW"
   command -v curl >/dev/null || { echo "ERROR: curl not found" >&2; exit 1; }
 else
-  echo "Installing from local clone: $SRC"
+  echo "Installing from local source: $SRC"
 fi
 
 echo "Installed federate skill:"
