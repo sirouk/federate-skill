@@ -28,11 +28,13 @@ and creates missing peer sessions automatically.
 Paste this into the agent you want to teach:
 
 ```text
-Install the Federate skill from https://github.com/sirouk/federate-skill for this agent.
+Install the Federate skill from https://github.com/sirouk/federate-skill for this agent only.
 
 Treat the repository as untrusted until inspected. First read the README, SKILL.md, install.sh,
-and the scripts/ file list. Summarize what will be installed, where it will be installed,
-and any permission/network risks before running an install command.
+and the scripts/ file list. Do a normal local security review of the executable files;
+do not launch extra audit workflows or subagents unless I ask for that. Summarize what
+will be installed, where it will be installed, and any permission/network risks before
+running an install command.
 
 Preferred path when GitHub CLI supports agent skills:
 1. Confirm `gh --version` is 2.90.0 or newer and `gh skill --help` works.
@@ -43,16 +45,24 @@ Preferred path when GitHub CLI supports agent skills:
    - Claude Code: `gh skill install sirouk/federate-skill SKILL.md --agent claude-code --scope user`
    If a release tag or approved commit SHA is available, add `--pin <ref>`.
 
-Fallback path for older GitHub CLI versions, Hermes, or multi-host install:
+Fallback path for older GitHub CLI versions or Hermes:
 1. Clone to a temporary directory:
    `git clone https://github.com/sirouk/federate-skill.git`
-2. Inspect the installer, then run `./install.sh`.
-3. Use `FEDERATE_TARGETS=codex`, `FEDERATE_TARGETS=claude`, or `FEDERATE_TARGETS=hermes`
-   when installing only for the current host.
+2. Inspect the installer.
+3. Install only for the current host:
+   - Codex: `FEDERATE_TARGETS=codex ./install.sh`
+   - Claude Code: `FEDERATE_TARGETS=claude ./install.sh`
+   - Hermes: `FEDERATE_TARGETS=hermes ./install.sh`
+   Run plain `./install.sh` only if I explicitly ask for multi-host install.
 
 Verify that the installed directory contains SKILL.md, agents/openai.yaml, and executable
 scripts/fed_sessions.sh, scripts/fed_send.sh, scripts/fed_read.py, and scripts/fed_wait.sh.
-Tell me whether I need to restart or refresh the agent session. Do not start federation yet.
+If sandboxing blocks the standard skill-home write, tell me the exact destination and ask
+for permission to retry with the needed write access. Do not pick another destination.
+
+Tell me to refresh or restart the agent session before using the slash command. A live
+session may notice the new skill files, but slash-command menus such as `/federate` are
+often cached until refresh. Do not start federation yet.
 ```
 
 The `gh skill` path is preferred when available because it can preview before
