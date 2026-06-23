@@ -226,6 +226,12 @@ install.sh         install into Claude, Codex, and Hermes skill homes
   present.
 - `fed_read.py hermes` searches `${HERMES_HOME:-~/.hermes}/state.db` and profile
   databases for the nonce.
+- Token conservation helps most when peers produce compact, evidence-dense
+  original answers. Do not post-process peer replies into compressed prose
+  before cross-pollination; that can delete uncertainty, minority reports,
+  safety qualifiers, and produce false convergence. The opposite is not blanket
+  verbosity either. Ask for enough detail to preserve receipts, assumptions,
+  confidence, and blocking deltas, then keep narrative short.
 - A clean test pass is not federation sign-off for build work. The skill keeps
   the original rails: distinct owners for cross-checking artifacts, sealed
   expected values, coordinator-recomputed hashes, adversarial review, and
