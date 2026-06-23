@@ -94,8 +94,12 @@ for permission to retry with the needed write access. Do not pick another destin
 
 Tell me to refresh or restart the agent session before using the skill. In Codex,
 use `$federate` or select it through `/skills`; do not assume `/federate` is a
-Codex command. Slash-command and skill menus may be cached until refresh. Do not
-start federation yet.
+Codex command. Slash-command and skill menus may be cached until refresh.
+Mention the two operating modes: by default the user remains the human in the
+loop; if I say "you are the human in the loop", "set it and forget it", or use a
+host goal mode such as `/goal`, the coordinator should act as the project owner
+and advance one fully federated reversible step at a time. Do not start
+federation yet.
 ```
 
 The `gh skill` path is preferred when available because it can preview before
@@ -161,8 +165,24 @@ The coordinator will:
 2. Write one brief per peer in a relay directory outside the project.
 3. Send all briefs before reading any answer.
 4. Read each peer by nonce from transcript/state, not tmux scrollback.
-5. Cross-show each peer the other peers' verbatim replies.
-6. Score convergence and bring agreements, deltas, and advice to the operator.
+5. Cross-show each peer the other peers' verbatim replies by default.
+6. Collect the cross-pollinated replies and synthesize the result.
+7. Run another complete round when convergence is not high enough, up to three
+   rounds for the iteration.
+8. Bring back the synthesis with a short convergence note: confidence,
+   round count, trend when relevant, and the main residual delta.
+
+The coordinator should not ask whether to cross-pollinate or whether a second
+internal round is necessary. It should judge convergence, iterate when useful,
+and return the high-confidence synthesis. Healthy orthogonal disagreement should
+remain visible; it is often the useful tension.
+
+By default, the user is the human in the loop and decides after the synthesis.
+For set-and-forget work, tell the coordinator "you are the human in the loop" or
+pair the skill with a host goal mode such as `/goal`. In that mode the
+coordinator acts like a project owner: federate the step, choose the barycenter
+of the converged plan, execute one reversible next step, then federate again.
+Irreversible actions still require explicit user authorization.
 
 By default the session bootstrap tries `claude`, `codex`, and
 `hermes --cli --yolo`, skipping CLIs that are not installed. It requires at
