@@ -161,6 +161,12 @@ Runtime controls:
 - `FED_NS_ROOT` overrides the canonical project root. By default the script
   uses `git rev-parse --show-toplevel`, else `pwd -P`.
 - `FED_CLAUDE_CMD`, `FED_CODEX_CMD`, and `FED_HERMES_CMD` override launch commands.
+- `FED_PROFILE_FILE` points at a markdown federation profile that `fed_send.sh`
+  injects into every brief (independent and cross) as a delimited, trusted
+  FEDERATION PROFILE section — shared domain context for the whole loop. It is
+  inserted after the top nonce (so reads still anchor), is clearly separated
+  from untrusted peer output, and must not override brief rails or operator
+  instructions. Unset by default.
 - Use explicit `FED_*_CMD` overrides only when you intentionally want prompt mode
   or a custom model/profile. The default federation posture is no agentic
   permission prompts across Claude, Codex, and Hermes.

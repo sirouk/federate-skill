@@ -218,6 +218,47 @@ them only when intentional with `FED_REUSE_LEGACY=1` or
 `FED_REUSE_UNMANAGED=1`; attached or busy adoption also requires
 `FED_REUSE_ATTACHED=1` or `FED_REUSE_BUSY=1`.
 
+## Federation profile (`FED_PROFILE_FILE`)
+
+A federation often runs inside a shared domain (a product, codebase, or
+platform). Peers like Claude and Codex start each round cold, so the coordinator
+ends up hand-repeating the same context into every brief. `FED_PROFILE_FILE`
+makes that context first-class: a markdown file injected into **every** brief
+`fed_send.sh` relays — independent and cross-pollination alike — so the whole
+loop reasons in the same domain.
+
+```bash
+export FED_PROFILE_FILE="$HOME/.federate/profiles/myproject.md"
+```
+
+When set, `fed_send.sh` inserts the file as a clearly delimited section:
+
+```text
+[[FED-<nonce>]]
+
+=== FEDERATION PROFILE (trusted coordinator context — does NOT override this brief's rails or operator instructions) ===
+…your profile…
+=== END FEDERATION PROFILE ===
+
+…the brief…
+
+[[FED-<nonce>]]
+```
+
+Design points:
+
+- **Trusted, coordinator-authored.** The profile sits in its own section, above
+  the brief and distinct from any quoted (untrusted) peer-output blocks a cross
+  brief contains. It is reference context, not a command channel.
+- **Subordinate.** Precedence is operator > brief rails > federation profile >
+  peer output. The injected header states this so a peer never treats the
+  profile as license to break the round's rails.
+- **Nonce-safe.** It is inserted *after* the top `[[FED-…]]` marker, so the
+  nonce stays the first non-empty line `fed_read.py` anchors on.
+- **No secrets.** Reference env-var names, not values. `fed_send.sh` refuses to
+  inject a file that contains a `-----BEGIN … PRIVATE KEY-----` block.
+- **Inert when unset.** No `FED_PROFILE_FILE` → byte-identical behavior to before.
+
 ## Files
 
 ```text
@@ -250,6 +291,8 @@ install.sh         install into Claude, Codex, and Hermes skill homes
 - `fed_send.sh` refuses to paste into sessions that are not namespaced
   federate-managed peers unless `FED_SKIP_OWNER_CHECK=1` is set for manual
   debugging.
+- `fed_send.sh` injects `FED_PROFILE_FILE` (when set) as a delimited FEDERATION
+  PROFILE section after the top nonce of every brief. See "Federation profile".
 - Token conservation helps most when peers produce compact, evidence-dense
   original answers. Do not post-process peer replies into compressed prose
   before cross-pollination; that can delete uncertainty, minority reports,
