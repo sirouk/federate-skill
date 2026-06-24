@@ -447,7 +447,7 @@ For result-bearing evaluations, pre-register methodology, thresholds, and verdic
 - Use nonces for every read. Claude transcript search can otherwise select the coordinator's own Claude session; Codex and Hermes can also have multiple active sessions.
 - `fed_read.py codex` returns Codex `final_answer` blocks when phase tags exist; commentary is not the cross-show source.
 - `fed_read.py` requires a nonce and matches the exact `[[FED...]]` marker inserted by `fed_send.sh`. If the nonce is found but no assistant/final answer is available yet, it exits nonzero; wait and re-read. `--unsafe-latest` exists only for manual debugging.
-- `fed_read.py hermes` searches `${HERMES_HOME:-~/.hermes}/state.db` and profile `state.db` files for the nonce marker in an active user message, then returns assistant messages from that same session until the next user turn.
+- `fed_read.py hermes` searches `${HERMES_HOME:-~/.hermes}/state.db` and profile `state.db` files for the nonce marker in an active user message, then returns assistant messages from that same session until the next user turn. For a Hermes peer launched on another host via `FED_HERMES_CMD`, set `FED_HERMES_REMOTE_READ=ssh` and `FED_HERMES_SSH_CMD` so the read happens against the remote `state.db` over SSH (read-only, same nonce semantics); see the README's "Remote Hermes peer over SSH".
 - `fed_send.sh` uses bracketed paste, places the nonce at the top and bottom of
   the brief for reliable composer verification, and sends Enter separately. If
   verification fails, it clears the staged buffer and exits nonzero.
