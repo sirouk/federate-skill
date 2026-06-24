@@ -218,6 +218,43 @@ them only when intentional with `FED_REUSE_LEGACY=1` or
 `FED_REUSE_UNMANAGED=1`; attached or busy adoption also requires
 `FED_REUSE_ATTACHED=1` or `FED_REUSE_BUSY=1`.
 
+## Remote Hermes peer over SSH
+
+`FED_HERMES_CMD` can launch a Hermes peer on another host (for example an SSH
+wrapper that runs `hermes --cli --yolo` remotely), so the send/composer side
+already works across machines. The read side, however, defaults to a local
+`state.db`. To read a remote peer's replies without mounting its filesystem,
+set the remote-read env vars and `fed_read.py hermes` will query the peer's
+`state.db` over SSH instead:
+
+```bash
+# Send/composer path: your wrapper launches the remote Hermes REPL over SSH.
+export FED_HERMES_CMD="$HOME/bin/hermes-remote-peer"
+
+# Read path: query the remote state.db over SSH (read-only). No SSHFS/FUSE.
+export FED_HERMES_REMOTE_READ=ssh
+export FED_HERMES_SSH_CMD="ssh -i ~/.ssh/hermes_key -o IdentitiesOnly=yes -o BatchMode=yes user@host"
+export FED_HERMES_REMOTE_STATE_DB="/home/user/.hermes/state.db"   # default: ~/.hermes/state.db (expanded on the remote)
+```
+
+When both `FED_HERMES_REMOTE_READ=ssh` and `FED_HERMES_SSH_CMD` are set,
+`fed_read.py hermes --nonce …` ships a small stdlib-only Python reader to the
+remote host over the SSH command you provide, opens the remote DB read-only
+(`file:<db>?mode=ro`), and applies the same nonce semantics as the local path
+(anchor on the latest user message whose first non-empty line is the exact
+`[[FED-…]]` marker; return assistant text until the next non-empty user turn).
+Nonce-not-found and matched-but-empty exit the same way as the local Hermes
+path. It prints a provenance line to stderr:
+
+```text
+[fed_read hermes remote] user@host:/home/user/.hermes/state.db session=<session_id>
+```
+
+No tokens or secrets are passed by Federate — you own the SSH command and its
+key/auth. The nonce and DB path are passed as argv to the remote Python (not
+shell-interpolated), and the DB is only ever opened read-only. All Claude,
+Codex, and local-Hermes behavior is unchanged when these vars are unset.
+
 ## Files
 
 ```text
@@ -243,7 +280,9 @@ install.sh         install into Claude, Codex, and Hermes skill homes
 - `fed_read.py codex` returns final-answer blocks when Codex phase tags are
   present.
 - `fed_read.py hermes` searches `${HERMES_HOME:-~/.hermes}/state.db` and profile
-  databases for the nonce.
+  databases for the nonce. Set `FED_HERMES_REMOTE_READ=ssh` +
+  `FED_HERMES_SSH_CMD` to read a remote peer's `state.db` over SSH instead
+  (see "Remote Hermes peer over SSH").
 - `fed_send.sh` inserts the nonce at the top and bottom of a brief. The top
   nonce anchors transcript/state reads; the bottom nonce makes long tmux pastes
   easier to verify before Enter is sent.

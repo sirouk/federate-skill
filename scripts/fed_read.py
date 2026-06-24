@@ -6,6 +6,8 @@ Clean source = the transcript JSONL, NEVER the garbled tmux scrollback.
   Codex : ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl    (assistant blocks tagged payload.phase
             in {commentary, final_answer}; we return final_answer only — commentary is internal narration)
   Hermes: ${HERMES_HOME:-~/.hermes}/state.db               (SQLite messages table; profiles are searched too)
+          Remote Hermes: set FED_HERMES_REMOTE_READ=ssh + FED_HERMES_SSH_CMD to read the peer's
+          state.db over SSH (read-only) when the peer runs on another host (see README).
 
 Disambiguate WHICH transcript + WHICH turn with the nonce fed_send injected ([[FED-…]]).
   --nonce is REQUIRED for a correct read. Without it the picker falls back to the most-recently
@@ -19,6 +21,8 @@ Usage:
 """
 import sys, os, json, glob, argparse, sqlite3
 import re
+import shlex
+import subprocess
 from pathlib import Path
 
 
@@ -240,7 +244,177 @@ def hermes_query_turn(db_path, key=None):
         con.close()
 
 
+# ---- Route B-prime: read remote Hermes (Vane) state.db over SSH (no SSHFS) ----
+# This code is shipped to the remote host over SSH and executed by its python3.
+# It mirrors hermes_query_turn()'s nonce semantics but runs against the remote DB.
+# RAW string: single backslashes (\x00, \n) are transmitted literally and parsed
+# by the REMOTE python interpreter.
+REMOTE_HERMES_READ_CODE = r'''
+import sys, os, json, sqlite3
+
+key = sys.argv[1]
+db_path = os.path.expanduser(sys.argv[2])
+
+def text_of(content):
+    if isinstance(content, str):
+        if content.startswith("\x00json:"):
+            try:
+                return text_of(json.loads(content[len("\x00json:"):]))
+            except Exception:
+                return content
+        return content
+    if isinstance(content, dict):
+        if content.get("text"):
+            return str(content.get("text"))
+        if content.get("content"):
+            return text_of(content.get("content"))
+        return ""
+    if isinstance(content, list):
+        return "".join(
+            b.get("text", "") for b in content
+            if isinstance(b, dict)
+            and (b.get("type") in ("text", "output_text", "input_text", None))
+            and b.get("text")
+        )
+    return ""
+
+def norm(s):
+    return " ".join((s or "").split())
+
+def has_nonce_marker(text, key):
+    marker = "[[" + key + "]]"
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        return stripped == marker
+    return False
+
+def table_columns(con, table):
+    try:
+        return {row["name"] for row in con.execute("PRAGMA table_info(" + table + ")")}
+    except sqlite3.Error:
+        return set()
+
+con = None
+try:
+    con = sqlite3.connect("file:" + db_path + "?mode=ro", uri=True, timeout=5)
+    con.row_factory = sqlite3.Row
+    columns = table_columns(con, "messages")
+    active_clause = "AND active = 1 " if "active" in columns else ""
+
+    anchor = None
+    for row in con.execute(
+        "SELECT id, session_id, content FROM messages "
+        "WHERE role = 'user' " + active_clause + "ORDER BY id DESC"
+    ):
+        if has_nonce_marker(text_of(row["content"]), key):
+            anchor = row
+            break
+
+    if not anchor:
+        print(json.dumps({"found": False}))
+        sys.exit(0)
+
+    rows = con.execute(
+        "SELECT id, role, content FROM messages "
+        "WHERE session_id = ? AND id > ? " + active_clause + "ORDER BY id",
+        (anchor["session_id"], anchor["id"]),
+    ).fetchall()
+
+    parts = []
+    for row in rows:
+        role = row["role"]
+        text = text_of(row["content"])
+        if role == "user" and norm(text):
+            break
+        if role == "assistant" and text.strip():
+            parts.append(text)
+
+    turn = "\n\n".join(parts)
+    print(json.dumps({
+        "found": True,
+        "session_id": anchor["session_id"],
+        "turn": turn,
+        "empty": not bool(turn.strip()),
+    }))
+finally:
+    try:
+        if con is not None:
+            con.close()
+    except Exception:
+        pass
+'''
+
+
+def _ssh_host_label(tokens):
+    # Best-effort user@host label for the stderr provenance line.
+    for t in reversed(tokens):
+        if "@" in t and not t.startswith("-"):
+            return t
+    return "remote"
+
+
+def hermes_read_remote_ssh(key):
+    raw_cmd = os.environ.get("FED_HERMES_SSH_CMD", "")
+    tokens = [os.path.expanduser(os.path.expandvars(t)) for t in shlex.split(raw_cmd)]
+    if not tokens:
+        sys.stderr.write("ERROR: FED_HERMES_REMOTE_READ=ssh but FED_HERMES_SSH_CMD is empty/unset.\n")
+        sys.exit(2)
+
+    # Default expands on the REMOTE host (argv is not shell-interpolated locally).
+    db_path = os.environ.get("FED_HERMES_REMOTE_STATE_DB", "~/.hermes/state.db")
+    host_label = _ssh_host_label(tokens)
+
+    # nonce + db path are passed as argv to the remote python (not shell-interpolated
+    # by us); the script body is piped over stdin to `python3 -`.
+    argv = tokens + ["python3", "-", key or "", db_path]
+    try:
+        proc = subprocess.run(
+            argv,
+            input=REMOTE_HERMES_READ_CODE,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except Exception as e:
+        sys.stderr.write(f"ERROR: remote Hermes SSH read failed to execute: {e}\n")
+        sys.exit(2)
+
+    if proc.returncode != 0:
+        detail = (proc.stderr or "").strip()
+        sys.stderr.write(f"ERROR: remote Hermes SSH read exited {proc.returncode}. {detail}\n")
+        sys.exit(2)
+
+    out = (proc.stdout or "").strip()
+    try:
+        data = json.loads(out.splitlines()[-1]) if out else {}
+    except Exception as e:
+        sys.stderr.write(f"ERROR: could not parse remote Hermes read output: {e}\n")
+        sys.exit(2)
+
+    if not data.get("found"):
+        sys.stderr.write(
+            f"ERROR: nonce {key!r} NOT FOUND in remote Hermes state.db — the agent has not replied yet "
+            f"(or the send failed). Wait for fed_wait ALL_IDLE, then re-read.\n"
+        )
+        sys.exit(3)
+
+    session_id = data.get("session_id")
+    sys.stderr.write(f"[fed_read hermes remote] {host_label}:{db_path} session={session_id}\n")
+    turn = data.get("turn") or ""
+    if data.get("empty") or not turn.strip():
+        sys.stderr.write("[fed_read] ERROR: matched nonce but the turn is EMPTY — agent may still be working.\n")
+        sys.exit(4)
+    print(turn)
+
+
 def hermes_read(key=None):
+    # Route B-prime: read the remote Vane Hermes state.db over SSH instead of a
+    # local (or SSHFS-mounted) file. Leaves local-Hermes behavior untouched.
+    if os.environ.get("FED_HERMES_REMOTE_READ") == "ssh" and os.environ.get("FED_HERMES_SSH_CMD"):
+        return hermes_read_remote_ssh(key)
+
     paths = hermes_state_paths()
     if not paths:
         sys.stderr.write("ERROR: no Hermes state.db found under ${HERMES_HOME:-~/.hermes}\n")
