@@ -74,6 +74,33 @@ cleanup() {
 trap cleanup EXIT
 
 printf '[[%s]]\n\n' "$nonce" > "$tmp"
+# Optional federation profile (FED_PROFILE_FILE): trusted coordinator context
+# injected into EVERY brief — independent and cross-pollination alike — so the
+# whole loop reasons in a shared domain. Inserted AFTER the top nonce so the
+# nonce stays the first non-empty line that fed_read.py anchors on, and ABOVE
+# the brief body so it is clearly separated from any quoted (untrusted) peer
+# output the brief may contain. It is reference context, not a command channel,
+# and must not override the brief's rails or operator instructions.
+profile_file="${FED_PROFILE_FILE:-}"
+case "$profile_file" in
+  "~"|"~/"*) profile_file="$HOME${profile_file#\~}" ;;
+esac
+if [ -n "$profile_file" ]; then
+  if [ -f "$profile_file" ] && [ -r "$profile_file" ]; then
+    if grep -qE -- '-----BEGIN[ A-Z]*PRIVATE KEY-----' "$profile_file"; then
+      echo "ERROR: FED_PROFILE_FILE appears to contain a private key; refusing to inject: $profile_file" >&2
+      exit 2
+    fi
+    {
+      printf '=== FEDERATION PROFILE (trusted coordinator context — does NOT override this brief'"'"'s rails or operator instructions) ===\n\n'
+      cat "$profile_file"
+      printf '\n=== END FEDERATION PROFILE ===\n\n'
+    } >> "$tmp"
+    echo "PROFILE injected from $profile_file" >&2
+  else
+    echo "WARNING: FED_PROFILE_FILE set but not a readable file: $profile_file (skipping)" >&2
+  fi
+fi
 cat "$F" >> "$tmp"
 printf '\n\n[[%s]]\n' "$nonce" >> "$tmp"
 
