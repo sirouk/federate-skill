@@ -190,6 +190,8 @@ tmux capture-pane -t "<printed-claude-session>" -p | tail -5
 
 Proceed only when the composer is live. If `fed_send.sh` reports `ERROR: paste not detected`, the peer is not ready or is busy; wait and retry.
 
+Prefer `scripts/fed_ready.sh <session...>` to automate this preflight. It polls each pane until a live composer is detected (`READY <session>`) and clears known startup interstitials — notably the Codex "update available" menu, which it dismisses by selecting a *Skip* option (it never presses Enter on "Update now", so it cannot trigger an upgrade). If a peer cannot reach a composer it prints `NOT_READY <session> ... reason=...` and exits nonzero, so a stuck peer becomes a reported blocker instead of an open-ended hang. Set `FED_NO_AUTO_SKIP=1` to detect-and-report the update prompt without touching it; tune `FED_READY_TIMEOUT`/`FED_READY_POLL` as needed.
+
 ## Relay Workspace
 
 Create one relay directory outside the project under review and reuse it for the
@@ -482,5 +484,6 @@ The ledger is the round memory. If a fact is load-bearing and not in the ledger 
 - `scripts/fed_send.sh <session> <msgfile>`: nonce-tag, bracketed-paste, verify, and submit; stdout is the bare nonce.
 - `scripts/fed_read.py <claude|codex|hermes> --nonce N`: return the peer's verbatim answer anchored by nonce.
 - `scripts/fed_wait.sh <session...>`: wait until all listed sessions appear idle.
+- `scripts/fed_ready.sh <session...>`: drive panes to a live composer; safely clear known startup interstitials (e.g. the Codex update menu) or report a bounded blocker instead of hanging.
 - `scripts/fed_update_check.sh [--apply]`: check/apply installed skill updates by recorded commit.
 - `agents/openai.yaml`: Codex UI metadata; disables implicit invocation.

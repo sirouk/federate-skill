@@ -63,8 +63,8 @@ Run exactly:
 
 Verify that the installed directory contains SKILL.md, agents/openai.yaml,
 .federate-install.json, and executable scripts/fed_sessions.sh,
-scripts/fed_send.sh, scripts/fed_read.py, scripts/fed_wait.sh, and
-scripts/fed_update_check.sh.
+scripts/fed_send.sh, scripts/fed_read.py, scripts/fed_wait.sh,
+scripts/fed_ready.sh, and scripts/fed_update_check.sh.
 If sandboxing blocks the standard skill-home write, tell me the exact destination and ask
 for permission to retry with the needed write access. Do not pick another destination.
 
@@ -218,6 +218,44 @@ them only when intentional with `FED_REUSE_LEGACY=1` or
 `FED_REUSE_UNMANAGED=1`; attached or busy adoption also requires
 `FED_REUSE_ATTACHED=1` or `FED_REUSE_BUSY=1`.
 
+## Peer readiness (`fed_ready.sh`)
+
+A peer CLI sometimes boots into a blocking interstitial instead of a composer —
+most commonly an "update available" menu. Codex, for example, shows:
+
+```text
+✨ Update available! 0.139.0 -> 0.142.0
+› 1. Update now (runs `brew upgrade --cask codex`)
+  2. Skip
+  3. Skip until next version
+Press enter to continue
+```
+
+From the coordinator's point of view the composer never appears, so the round
+just sits and stares. Worse, a blind Enter selects the preselected "Update now"
+and kicks off an upgrade that hangs the pane.
+
+`fed_ready.sh` is a bounded preflight that resolves this. Run it after
+`fed_sessions.sh` and before sending:
+
+```bash
+scripts/fed_ready.sh fed-<ns>-codex-0 fed-<ns>-hermes-0
+```
+
+Per session it polls until a live composer is detected (`READY <session>`), or
+until it times out / hits an unclearable prompt (`NOT_READY <session>
+agent=<a> reason=<r>`, and a nonzero exit). For the Codex update menu it
+navigates the cursor DOWN onto a "Skip" line and only then presses Enter — it
+never presses Enter while "Update now" is selected, so it cannot trigger an
+update. If the menu shape is unexpected it presses nothing and reports
+`NOT_READY` rather than guess.
+
+Controls: `FED_READY_TIMEOUT` (default 60s), `FED_READY_POLL` (default 2s),
+`FED_READY_CAPTURE_LINES` (default 60), and `FED_NO_AUTO_SKIP=1` to detect and
+report the update prompt without touching it. The net effect: a stuck peer
+becomes a clear, bounded blocker the coordinator can report, never an open-ended
+hang.
+
 ## Files
 
 ```text
@@ -229,6 +267,8 @@ scripts/
   fed_send.sh      nonce-tag, bracketed-paste, verify, submit
   fed_read.py      read Claude/Codex transcripts or Hermes state.db by nonce
   fed_wait.sh      wait until listed sessions appear idle
+  fed_ready.sh     drive panes to a live composer; clear known startup
+                   interstitials (e.g. Codex update prompt) or report a blocker
   fed_update_check.sh
                    check/apply installed skill updates by recorded commit
 install.sh         install into Claude, Codex, and Hermes skill homes
