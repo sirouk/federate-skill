@@ -19,7 +19,7 @@ set -euo pipefail
 SOURCE="${FEDERATE_SOURCE:-https://github.com/sirouk/federate-skill.git}"
 REF="${FEDERATE_REF:-main}"
 RAW="${FEDERATE_RAW:-https://raw.githubusercontent.com/sirouk/federate-skill/$REF}"
-FILES=(SKILL.md agents/openai.yaml scripts/fed_sessions.sh scripts/fed_send.sh scripts/fed_read.py scripts/fed_wait.sh scripts/fed_update_check.sh)
+FILES=(SKILL.md agents/openai.yaml scripts/fed_sessions.sh scripts/fed_send.sh scripts/fed_read.py scripts/fed_wait.sh scripts/fed_ready.sh scripts/fed_update_check.sh)
 
 # Where am I running from? (local development has files next to this script)
 SRC=""
