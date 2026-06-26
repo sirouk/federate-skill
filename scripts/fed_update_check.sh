@@ -2,8 +2,8 @@
 # fed_update_check.sh [--apply] [--force] — check/update the installed Federate skill.
 #
 # Default: print UP_TO_DATE, UPDATE_AVAILABLE, or LOCAL_DIRTY and exit without changing files.
-# --apply: fetch the latest payload for the recorded source/ref and update the
-# installed skill directory in place. Restart/refresh the host agent afterwards.
+# --apply: fetch the latest payload for the recorded source/ref, stage it, then
+# replace the installed skill directory. Restart/refresh the host agent afterwards.
 set -euo pipefail
 
 ACTION="check"
@@ -41,6 +41,14 @@ else:
 PY
 }
 
+is_full_sha() {
+  [[ "${1:-}" =~ ^[0-9a-fA-F]{40}$ ]]
+}
+
+normalize_sha() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
 github_repo_from_source() {
   printf '%s' "$1" | sed -nE 's#^(https://github.com/|git@github.com:)([^/]+/[^/.]+)(\.git)?$#\2#p'
 }
@@ -50,19 +58,27 @@ remote_commit() {
   ref="$2"
   commit=""
 
+  if is_full_sha "$ref"; then
+    normalize_sha "$ref"
+    return 0
+  fi
+
   if command -v git >/dev/null 2>&1; then
     commit="$(git ls-remote "$source_url" "$ref" 2>/dev/null | awk 'NR == 1 {print $1}')"
   fi
-  if [ -n "$commit" ]; then
-    echo "$commit"
+  if is_full_sha "$commit"; then
+    normalize_sha "$commit"
     return 0
   fi
 
   repo="$(github_repo_from_source "$source_url")"
   if [ -n "$repo" ] && command -v curl >/dev/null 2>&1; then
-    curl -fsSL "https://api.github.com/repos/$repo/commits/$ref" 2>/dev/null |
+    commit="$(curl -fsSL "https://api.github.com/repos/$repo/commits/$ref" 2>/dev/null |
       sed -n 's/^[[:space:]]*"sha": "\([0-9a-f][0-9a-f]*\)",[[:space:]]*$/\1/p' |
-      head -n 1
+      head -n 1)"
+    if is_full_sha "$commit"; then
+      normalize_sha "$commit"
+    fi
   fi
 }
 
@@ -85,9 +101,13 @@ DIRTY="$(json_value dirty)"
 [ -n "$SOURCE" ] || die "install metadata missing source"
 [ -n "$REF" ] || die "install metadata missing ref"
 [ -n "$INSTALLED" ] || die "install metadata missing commit"
+INSTALLED="$(normalize_sha "$INSTALLED")"
+is_full_sha "$INSTALLED" || die "install metadata commit is not a full 40-hex SHA: $INSTALLED"
 
 LATEST="$(remote_commit "$SOURCE" "$REF" || true)"
-[ -n "$LATEST" ] || die "could not resolve latest commit for $SOURCE $REF"
+[ -n "$LATEST" ] || die "could not resolve full 40-hex latest commit for $SOURCE $REF"
+LATEST="$(normalize_sha "$LATEST")"
+is_full_sha "$LATEST" || die "resolved latest commit is not a full 40-hex SHA: $LATEST"
 
 if [ "$INSTALLED" = "$LATEST" ] && [ "$DIRTY" != "true" ]; then
   echo "UP_TO_DATE installed=$INSTALLED ref=$REF source=$SOURCE"

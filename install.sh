@@ -19,7 +19,26 @@ set -euo pipefail
 SOURCE="${FEDERATE_SOURCE:-https://github.com/sirouk/federate-skill.git}"
 REF="${FEDERATE_REF:-main}"
 RAW="${FEDERATE_RAW:-https://raw.githubusercontent.com/sirouk/federate-skill/$REF}"
-FILES=(SKILL.md agents/openai.yaml scripts/fed_sessions.sh scripts/fed_send.sh scripts/fed_read.py scripts/fed_wait.sh scripts/fed_update_check.sh)
+FILES=(
+  SKILL.md
+  agents/openai.yaml
+  scripts/SPEC_fed_cross.md
+  scripts/SPEC_fed_round_check.md
+  scripts/fed_sessions.sh
+  scripts/fed_send.sh
+  scripts/fed_read.py
+  scripts/fed_cross.py
+  scripts/fed_round_check.py
+  scripts/fed_ready.sh
+  scripts/fed_wait.sh
+  scripts/fed_update_check.sh
+  scripts/tests/test_fed_cross.py
+  scripts/tests/test_fed_read_receipts_impl.py
+  scripts/tests/test_fed_ready.py
+  scripts/tests/test_fed_round_check.py
+  scripts/tests/test_fed_send_profile.py
+  scripts/tests/test_update_hardening.py
+)
 
 # Where am I running from? (local development has files next to this script)
 SRC=""
@@ -33,6 +52,14 @@ json_escape() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
+is_full_sha() {
+  [[ "${1:-}" =~ ^[0-9a-fA-F]{40}$ ]]
+}
+
+normalize_sha() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
 github_repo_from_source() {
   printf '%s' "$1" | sed -nE 's#^(https://github.com/|git@github.com:)([^/]+/[^/.]+)(\.git)?$#\2#p'
 }
@@ -42,19 +69,27 @@ remote_commit() {
   ref="$2"
   commit=""
 
+  if is_full_sha "$ref"; then
+    normalize_sha "$ref"
+    return 0
+  fi
+
   if command -v git >/dev/null 2>&1; then
     commit="$(git ls-remote "$source_url" "$ref" 2>/dev/null | awk 'NR == 1 {print $1}')"
   fi
-  if [ -n "$commit" ]; then
-    echo "$commit"
+  if is_full_sha "$commit"; then
+    normalize_sha "$commit"
     return 0
   fi
 
   repo="$(github_repo_from_source "$source_url")"
   if [ -n "$repo" ] && command -v curl >/dev/null 2>&1; then
-    curl -fsSL "https://api.github.com/repos/$repo/commits/$ref" 2>/dev/null |
+    commit="$(curl -fsSL "https://api.github.com/repos/$repo/commits/$ref" 2>/dev/null |
       sed -n 's/^[[:space:]]*"sha": "\([0-9a-f][0-9a-f]*\)",[[:space:]]*$/\1/p' |
-      head -n 1
+      head -n 1)"
+    if is_full_sha "$commit"; then
+      normalize_sha "$commit"
+    fi
   fi
 }
 
@@ -122,13 +157,14 @@ EOF
 }
 
 COMMIT="${FEDERATE_COMMIT:-$(install_commit)}"
+COMMIT="$(normalize_sha "$COMMIT")"
+if ! is_full_sha "$COMMIT"; then
+  echo "ERROR: resolved Federate commit is not a full 40-hex SHA: $COMMIT" >&2
+  exit 1
+fi
 INSTALL_REF="$(install_ref)"
 INSTALL_SOURCE="$(install_source)"
 DIRTY="$(install_dirty)"
-if [ -z "$COMMIT" ]; then
-  echo "ERROR: could not resolve the Federate source commit. Use the documented curl installer with network access, or set FEDERATE_COMMIT." >&2
-  exit 1
-fi
 if [ -z "${FEDERATE_RAW:-}" ]; then
   repo="$(github_repo_from_source "$INSTALL_SOURCE")"
   if [ -n "$repo" ] && [ -n "$COMMIT" ]; then
@@ -136,20 +172,58 @@ if [ -z "${FEDERATE_RAW:-}" ]; then
   fi
 fi
 
-copy_one() {
+populate_payload() {
+  local dest f
   dest="$1"
-  mkdir -p "$dest/scripts"
-
   for f in "${FILES[@]}"; do
-    mkdir -p "$dest/$(dirname "$f")"
+    mkdir -p "$dest/$(dirname "$f")" || return 1
     if [ -n "$SRC" ] && [ -f "$SRC/SKILL.md" ]; then
-      cp "$SRC/$f" "$dest/$f"
+      cp "$SRC/$f" "$dest/$f" || return 1
     else
-      curl -fsSL "$RAW/$f" -o "$dest/$f"
+      curl -fsSL "$RAW/$f" -o "$dest/$f" || return 1
     fi
   done
-  chmod +x "$dest"/scripts/*.sh "$dest"/scripts/*.py 2>/dev/null || true
-  write_metadata "$dest" "$INSTALL_SOURCE" "$INSTALL_REF" "$COMMIT" "$RAW" "$DIRTY"
+  find "$dest/scripts" -type f \( -name '*.sh' -o -name '*.py' \) -exec chmod +x {} + 2>/dev/null || true
+  write_metadata "$dest" "$INSTALL_SOURCE" "$INSTALL_REF" "$COMMIT" "$RAW" "$DIRTY" || return 1
+}
+
+copy_one() {
+  local dest parent base stage backup
+  dest="$1"
+  parent="$(dirname "$dest")"
+  base="$(basename "$dest")"
+  mkdir -p "$parent"
+  stage="$(mktemp -d "$parent/.${base}.stage.XXXXXX")"
+  backup=""
+
+  if ! populate_payload "$stage"; then
+    rm -rf "$stage"
+    echo "ERROR: failed to assemble install payload for $dest; existing install left unchanged." >&2
+    return 1
+  fi
+
+  if [ -e "$dest" ]; then
+    backup="$(mktemp -d "$parent/.${base}.backup.XXXXXX")"
+    rmdir "$backup"
+    if ! mv "$dest" "$backup"; then
+      rm -rf "$stage"
+      echo "ERROR: failed to stage existing install for replacement: $dest" >&2
+      return 1
+    fi
+  fi
+
+  if ! mv "$stage" "$dest"; then
+    if [ -n "$backup" ] && [ -d "$backup" ] && [ ! -e "$dest" ]; then
+      mv "$backup" "$dest" || true
+    fi
+    rm -rf "$stage"
+    echo "ERROR: failed to install staged payload for $dest; existing install restored if possible." >&2
+    return 1
+  fi
+
+  if [ -n "$backup" ]; then
+    rm -rf "$backup"
+  fi
   echo "  -> $dest"
 }
 
