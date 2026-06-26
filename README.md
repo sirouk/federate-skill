@@ -140,7 +140,8 @@ The coordinator will:
    stale.
 2. Create a relay directory outside the project and derive `FED_NS` from it.
 3. Run `FED_NS="$(basename "$RELAY")" scripts/fed_sessions.sh` to create/reuse
-   peer tmux sessions scoped to that federation thread.
+   peer tmux sessions scoped to that federation thread, then surface the printed
+   attach commands so the operator can watch the peers.
 4. For each round, create a per-round artifact directory such as
    `$ROUND="$RELAY/round_1"` and write that round's briefs there.
 5. Send all briefs before reading any answer.
@@ -204,7 +205,10 @@ By default the session bootstrap uses namespaced no-prompt/yolo peer commands:
 least two live peer sessions. Codex metadata disables implicit invocation, so
 use the skill explicitly when you want to spend the extra peer-agent calls.
 Session names look like `fed-<ns>-claude-0`; use the names printed by
-`fed_sessions.sh`, not hard-coded `claude-0` or `codex-0`.
+`fed_sessions.sh`, not hard-coded `claude-0` or `codex-0`. The script also
+prints `*_ATTACH_CMD` variables and a read-only watch block for the available
+peers. These commands are for the human/operator to run in another terminal; the
+coordinator should not attach to peer panes during a federation round.
 
 Runtime overrides:
 
@@ -215,6 +219,20 @@ FED_NS_ROOT=/path/to/project /path/to/federate/scripts/fed_sessions.sh
 FED_CLAUDE_CMD='claude' /path/to/federate/scripts/fed_sessions.sh
 FED_CODEX_CMD='codex' /path/to/federate/scripts/fed_sessions.sh
 FED_HERMES_CMD='hermes --cli' /path/to/federate/scripts/fed_sessions.sh
+```
+
+Example output includes eval-safe command variables on stdout:
+
+```bash
+CLAUDE_SESSION=fed-relay-claude-0
+CLAUDE_ATTACH_CMD='tmux attach-session -r -t fed-relay-claude-0'
+```
+
+It also prints a copyable watch block on stderr:
+
+```text
+# Attach commands to watch peers (read-only; detach with Ctrl-b d):
+#   tmux attach-session -r -t fed-relay-claude-0
 ```
 
 Use explicit `FED_*_CMD` overrides only when you intentionally want prompt mode
@@ -306,6 +324,11 @@ menu shapes receive no Enter. Set `FED_NO_AUTO_SKIP=1` to detect the prompt
 without touching it. `FED_READY_TIMEOUT`, `FED_READY_POLL`, and
 `FED_READY_CAPTURE_LINES` tune the bounded poll.
 
+The default busy detector is shared by `fed_ready.sh`, `fed_sessions.sh`, and
+`fed_wait.sh`, and is intentionally limited to active-turn and interrupt
+markers. Override `FED_BUSY_RE` when an agent TUI changes or a specialized
+environment needs additional busy markers.
+
 ## Files
 
 ```text
@@ -313,7 +336,8 @@ SKILL.md
 agents/
   openai.yaml       Codex UI metadata and explicit-invocation policy
 scripts/
-  fed_sessions.sh  create/reuse tmux sessions for Claude, Codex, Hermes
+  fed_sessions.sh  create/reuse tmux sessions and print attach commands for
+                   Claude, Codex, Hermes
   fed_send.sh      nonce-tag, bracketed-paste, verify, submit
   fed_read.py      read transcripts/state by nonce; optionally mint receipts
   fed_cross.py     generate/verify receipt-bound verbatim cross briefs

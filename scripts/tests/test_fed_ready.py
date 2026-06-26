@@ -98,7 +98,13 @@ def managed(agent: str, pane: str, ns: str = "fedtest", root: str = "/repo") -> 
 
 
 class FedReadyTests(unittest.TestCase):
-    def run_ready(self, sessions: dict, *names: str, extra_env: dict | None = None):
+    def run_ready(
+        self,
+        sessions: dict,
+        *names: str,
+        extra_env: dict | None = None,
+        use_default_busy_re: bool = False,
+    ):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             state_path = tmp / "state.json"
@@ -119,9 +125,18 @@ class FedReadyTests(unittest.TestCase):
                     "FED_READY_TIMEOUT": "1",
                     "FED_READY_POLL": "1",
                     "FED_SKIP_OWNER_CHECK": "0",
-                    "FED_BUSY_RE": "esc to interrupt|Esc to int|ctrl-c to stop|Ctrl\\+C cancel|msg=interrupt|running|thinking|working|executing|processing|waiting for|tool use",
                 }
             )
+            if use_default_busy_re:
+                env.pop("FED_BUSY_RE", None)
+            else:
+                # Explicit override path: keep broad-marker tests independent of
+                # the shipped default so startup-prompt behavior remains stable.
+                env["FED_BUSY_RE"] = (
+                    "esc to interrupt|Esc to int|ctrl-c to stop|Ctrl\\+C cancel|"
+                    "msg=interrupt|running|thinking|working|executing|processing|"
+                    "waiting for|tool use"
+                )
             if extra_env:
                 env.update(extra_env)
 
@@ -267,6 +282,97 @@ class FedReadyTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 1)
         self.assertIn("pane appears busy", proc.stdout)
         self.assertEqual(state["sessions"]["h"].get("keys", []), [])
+
+    def test_default_busy_regex_idle_claude_banner_is_ready(self):
+        pane = textwrap.dedent(
+            """\
+            Welcome to Claude Code!
+            Your bash commands will be sandboxed. Disable with /sandbox.
+            ? for shortcuts
+            """
+        )
+        proc, state = self.run_ready(
+            {"cl": managed("claude", pane)},
+            "cl",
+            use_default_busy_re=True,
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("READY cl", proc.stdout)
+        self.assertEqual(state["sessions"]["cl"].get("keys", []), [])
+
+    def test_default_busy_regex_idle_hermes_banner_is_ready(self):
+        pane = textwrap.dedent(
+            """\
+            Welcome to Hermes! Type your message or /help for commands.
+            Tip: /browser connect attaches browser tools to your running Chromium-family browser via CDP.
+            """
+        )
+        proc, state = self.run_ready(
+            {"h": managed("hermes", pane)},
+            "h",
+            use_default_busy_re=True,
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("READY h", proc.stdout)
+        self.assertEqual(state["sessions"]["h"].get("keys", []), [])
+
+    def test_default_busy_regex_idle_codex_composer_is_ready(self):
+        proc, state = self.run_ready(
+            {"c": managed("codex", "Ctrl+J newline\n›\n")},
+            "c",
+            use_default_busy_re=True,
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("READY c", proc.stdout)
+        self.assertEqual(state["sessions"]["c"].get("keys", []), [])
+
+    def test_default_busy_regex_active_markers_are_not_ready(self):
+        cases = {
+            "cl": ("claude", "Welcome to Claude Code!\nesc to interrupt\n"),
+            "c": ("codex", "Ctrl+J newline\nctrl-c to stop\n"),
+            "h": ("hermes", "Welcome to Hermes!\nmsg=interrupt\n"),
+        }
+        for name, (agent, pane) in cases.items():
+            with self.subTest(agent=agent):
+                proc, state = self.run_ready(
+                    {name: managed(agent, pane)},
+                    name,
+                    use_default_busy_re=True,
+                )
+
+                self.assertEqual(proc.returncode, 1)
+                self.assertIn("pane appears busy", proc.stdout)
+                self.assertEqual(state["sessions"][name].get("keys", []), [])
+
+    def test_default_busy_regex_ignores_historical_answer_text_above_composer(self):
+        pane = textwrap.dedent(
+            """\
+            Prior answer mentions esc to interrupt and msg=interrupt as examples.
+            Historical text can remain visible after the turn completes.
+            More prior answer text.
+            More prior answer text.
+            More prior answer text.
+            More prior answer text.
+            More prior answer text.
+            More prior answer text.
+            ──────────────────────────────────────────────
+            ❯
+            ──────────────────────────────────────────────
+            bypass permissions on
+            """
+        )
+        proc, state = self.run_ready(
+            {"cl": managed("claude", pane)},
+            "cl",
+            use_default_busy_re=True,
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("READY cl", proc.stdout)
+        self.assertEqual(state["sessions"]["cl"].get("keys", []), [])
 
     def test_mixed_sessions_emit_all_statuses_and_fail(self):
         proc, state = self.run_ready(

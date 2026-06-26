@@ -35,6 +35,8 @@ FILES=(
   scripts/tests/test_fed_cross.py
   scripts/tests/test_fed_read_receipts_impl.py
   scripts/tests/test_fed_ready.py
+  scripts/tests/test_fed_sessions_attach.py
+  scripts/tests/test_busy_regex_defaults.py
   scripts/tests/test_fed_round_check.py
   scripts/tests/test_fed_send_profile.py
   scripts/tests/test_update_hardening.py

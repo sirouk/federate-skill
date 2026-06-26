@@ -184,12 +184,18 @@ Runtime controls:
   roots. Do not use it unless you intentionally share peers across projects.
 - `FED_TMUX_WIDTH` and `FED_TMUX_HEIGHT` override the default wide panes.
 
-The script prints `FEDERATE_DIR=...`, `FED_NS=...`, `FED_NS_ROOT=...`, and one
-variable per available peer, such as `CLAUDE_SESSION=fed-<ns>-claude-0`. Record
-the printed namespace, root, and literal session names in `relay_log.md`. Use
-those literal session names in later commands; shell variables do not persist
-between tool calls. If fewer than two peers are available, stop and report the
-missing CLI/authentication requirement.
+The script prints `FEDERATE_DIR=...`, `FED_NS=...`, `FED_NS_ROOT=...`, one
+session variable per available peer such as
+`CLAUDE_SESSION=fed-<ns>-claude-0`, and one eval-safe attach command variable
+such as `CLAUDE_ATTACH_CMD='tmux attach-session -r -t fed-<ns>-claude-0'`. It
+also prints a read-only watch block on stderr. Record
+the printed namespace, root, literal session names, and attach commands in
+`relay_log.md`, and surface the attach commands to the operator after
+initialization so they can watch the peers in another terminal. The coordinator
+must not attach to peer panes during a federation round. Use the literal session
+names in later commands; shell variables do not persist between tool calls. If
+fewer than two peers are available, stop and report the missing
+CLI/authentication requirement.
 
 Preflight every session, new or reused. Confirm live composer, idle state, expected project/cwd, account/model, permission mode, and no pending prompt. If the script prints `CREATED`, the CLI is still booting. Wait about 10 seconds, then run the readiness preflight before first send:
 
@@ -569,9 +575,10 @@ For result-bearing evaluations, pre-register methodology, thresholds, and verdic
   PROFILE section after the top nonce. Bad profile paths and private-key-looking
   content fail before any tmux paste.
 - `fed_wait.sh` is a liveness hint, not proof of completion. Some agents go pane-idle while sub-work is still running; the nonce read decides whether a real answer has landed.
-- `FED_BUSY_RE` overrides the shared busy-marker regex used by `fed_sessions.sh`
-  and `fed_wait.sh` for local debugging only. The defaults include Claude,
-  Codex, and Hermes active-turn markers.
+- `FED_BUSY_RE` overrides the shared busy-marker regex used by `fed_ready.sh`,
+  `fed_sessions.sh`, and `fed_wait.sh`. The default is limited to active-turn
+  and interrupt markers for Claude, Codex, and Hermes. Use the override when an
+  agent TUI changes or a specialized environment needs additional busy markers.
 - `fed_update_check.sh` compares `.federate-install.json` to the recorded
   source/ref and can stage then replace the installed payload with `--apply`.
   Dirty installed payloads report `LOCAL_DIRTY` and require operator-approved
@@ -597,7 +604,7 @@ The ledger is the round memory. If a fact is load-bearing and not in the ledger 
 
 ## Files
 
-- `scripts/fed_sessions.sh`: start/reuse namespaced tmux peer sessions for Claude, Codex, and Hermes; prints namespace, root, and session names.
+- `scripts/fed_sessions.sh`: start/reuse namespaced tmux peer sessions for Claude, Codex, and Hermes; prints namespace, root, session names, and read-only attach commands.
 - `scripts/fed_send.sh <session> <msgfile>`: nonce-tag, bracketed-paste, verify, and submit; stdout is the bare nonce.
 - `scripts/fed_read.py <claude|codex|hermes> --nonce N [--receipt-dir DIR]`: return the peer's verbatim answer anchored by nonce and optionally mint receipt sidecars.
 - `scripts/fed_cross.py generate|verify [--round N]`: create and verify receipt-bound, tamper-evident cross briefs.

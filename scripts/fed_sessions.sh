@@ -13,7 +13,8 @@
 # to a stable project namespace for manual use.
 #
 # Override launch commands with FED_CLAUDE_CMD, FED_CODEX_CMD, FED_HERMES_CMD.
-# Prints FEDERATE_DIR=..., FED_NS=..., FED_NS_ROOT=..., plus <AGENT>_SESSION=....
+# Prints FEDERATE_DIR=..., FED_NS=..., FED_NS_ROOT=..., plus <AGENT>_SESSION=...
+# and <AGENT>_ATTACH_CMD=... for each available peer.
 set -euo pipefail
 
 W="${FED_TMUX_WIDTH:-230}"
@@ -35,7 +36,7 @@ die() {
 
 command -v tmux >/dev/null 2>&1 || die "tmux not found. Install tmux, then rerun fed_sessions.sh."
 tmux start-server >/dev/null 2>&1 || true
-FED_BUSY_RE="${FED_BUSY_RE:-esc to interrupt|Esc to int|ctrl-c to stop|Ctrl\\+C cancel|msg=interrupt|running|thinking|working|executing|processing|waiting for|tool use|bash|python|npm|pnpm|cargo|pytest|uv run|Working \\(|thinking with|background terminal runni}"
+FED_BUSY_RE="${FED_BUSY_RE:-esc to interrupt|Esc to int|ctrl-c to stop|Ctrl\\+C cancel|msg=interrupt|Working \\(}"
 
 hash8() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -138,8 +139,27 @@ session_attached() {
 }
 
 session_busy() {
-  pane="$(tmux capture-pane -J -t "$1" -p -S -12 2>/dev/null || true)"
+  pane="$(tmux capture-pane -J -t "$1" -p -S -4 2>/dev/null | tail -4 || true)"
   printf '%s' "$pane" | grep -qiE "$FED_BUSY_RE"
+}
+
+shell_single_quote() {
+  printf "'"
+  printf '%s' "$1" | sed "s/'/'\\\\''/g"
+  printf "'"
+}
+
+attach_cmd() {
+  printf 'tmux attach-session -r -t %s' "$1"
+}
+
+emit_agent_output() {
+  agent="$1"
+  session="$2"
+  upper="$(printf '%s' "$agent" | tr '[:lower:]' '[:upper:]')"
+  quoted_attach="$(shell_single_quote "$(attach_cmd "$session")")"
+  printf '%s_SESSION=%s\n' "$upper" "$session"
+  printf '%s_ATTACH_CMD=%s\n' "$upper" "$quoted_attach"
 }
 
 allow_session_reuse() {
@@ -243,7 +263,7 @@ ensure_agent() {
   existing="$(find_existing "$agent" "$cmd")"
   if [ -n "$existing" ]; then
     tmux resize-window -t "$existing" -x "$W" -y "$H" 2>/dev/null || true
-    printf '%s_SESSION=%s\n' "$(printf '%s' "$agent" | tr '[:lower:]' '[:upper:]')" "$existing"
+    emit_agent_output "$agent" "$existing"
     return 0
   fi
 
@@ -269,7 +289,19 @@ ensure_agent() {
   tag_session "$name" "$agent" "$cmd"
   tmux send-keys -t "$name" "$cmd" Enter
   echo "CREATED $name with: $cmd (booting; wait for a live composer before first send)" >&2
-  printf '%s_SESSION=%s\n' "$(printf '%s' "$agent" | tr '[:lower:]' '[:upper:]')" "$name"
+  emit_agent_output "$agent" "$name"
+}
+
+print_attach_block() {
+  sessions="$1"
+  [ -n "$sessions" ] || return 0
+  {
+    echo "# Attach commands to watch peers (read-only; detach with Ctrl-b d):"
+    printf '%s' "$sessions" | while IFS= read -r session; do
+      [ -n "$session" ] || continue
+      printf '#   %s\n' "$(attach_cmd "$session")"
+    done
+  } >&2
 }
 
 if [ "$#" -gt 0 ]; then
@@ -279,6 +311,7 @@ else
 fi
 
 available_count=0
+attach_sessions=""
 printf 'FEDERATE_DIR=%q\n' "$SKILL_DIR"
 printf 'FED_NS=%q\n' "$NS"
 printf 'FED_NS_ROOT=%q\n' "$ROOT"
@@ -291,6 +324,12 @@ for agent in $agents; do
   out="$(ensure_agent "$agent")" || exit $?
   if [ -n "$out" ]; then
     echo "$out"
+    session_line="$(printf '%s\n' "$out" | awk -F= '/^[A-Z_]+_SESSION=/{print; exit}')"
+    session_name="${session_line#*=}"
+    if [ -n "$session_name" ] && [ "$session_name" != "$session_line" ]; then
+      attach_sessions="${attach_sessions}${session_name}
+"
+    fi
     available_count=$((available_count + 1))
   fi
 done
@@ -298,3 +337,5 @@ done
 if [ "$available_count" -lt 2 ]; then
   die "federation needs at least two available peer sessions; got $available_count. Install/authenticate at least two of: claude, codex, hermes."
 fi
+
+print_attach_block "$attach_sessions"

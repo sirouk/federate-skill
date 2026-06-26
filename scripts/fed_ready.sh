@@ -9,7 +9,7 @@ command -v tmux >/dev/null 2>&1 || { echo "ERROR: tmux not found" >&2; exit 2; }
 TIMEOUT="${FED_READY_TIMEOUT:-60}"
 POLL="${FED_READY_POLL:-2}"
 LINES="${FED_READY_CAPTURE_LINES:-60}"
-BUSY_RE="${FED_BUSY_RE:-esc to interrupt|Esc to int|ctrl-c to stop|Ctrl\\+C cancel|msg=interrupt|running|thinking|working|executing|processing|waiting for|tool use|bash|python|npm|pnpm|cargo|pytest|uv run|Working \\(|thinking with|background terminal runni}"
+BUSY_RE="${FED_BUSY_RE:-esc to interrupt|Esc to int|ctrl-c to stop|Ctrl\\+C cancel|msg=interrupt|Working \\(}"
 
 case "$TIMEOUT" in ''|*[!0-9]*) TIMEOUT=60 ;; esac
 case "$POLL" in ''|*[!0-9]*) POLL=2 ;; esac
@@ -68,7 +68,7 @@ active_codex_update_prompt() {
 pane_busy() {
   local pane current
   pane="$(cat)"
-  current="$(printf '%s\n' "$pane" | bottom 12)"
+  current="$(printf '%s\n' "$pane" | bottom 4)"
   printf '%s' "$current" | grep -qiE "$BUSY_RE"
 }
 
