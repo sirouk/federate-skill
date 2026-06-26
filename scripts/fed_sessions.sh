@@ -35,6 +35,7 @@ die() {
 
 command -v tmux >/dev/null 2>&1 || die "tmux not found. Install tmux, then rerun fed_sessions.sh."
 tmux start-server >/dev/null 2>&1 || true
+FED_BUSY_RE="${FED_BUSY_RE:-esc to interrupt|Esc to int|ctrl-c to stop|Ctrl\\+C cancel|msg=interrupt|running|thinking|working|executing|processing|waiting for|tool use|bash|python|npm|pnpm|cargo|pytest|uv run|Working \\(|thinking with|background terminal runni}"
 
 hash8() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -137,8 +138,8 @@ session_attached() {
 }
 
 session_busy() {
-  pane="$(tmux capture-pane -t "$1" -p -S -8 2>/dev/null || true)"
-  printf '%s' "$pane" | grep -qiE 'esc to interrupt|ctrl-c to stop|running|thinking|working|executing|processing|waiting for|tool use|bash|python|npm|pnpm|cargo|pytest|pytest|uv run'
+  pane="$(tmux capture-pane -J -t "$1" -p -S -12 2>/dev/null || true)"
+  printf '%s' "$pane" | grep -qiE "$FED_BUSY_RE"
 }
 
 allow_session_reuse() {
@@ -194,6 +195,7 @@ find_existing() {
       continue
     fi
     if [ "$stored_cmd" = "$expected_cmd" ]; then
+      allow_session_reuse "$s" "managed" || continue
       warn_reused_state "$s"
       echo "$s"
       return 0

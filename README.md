@@ -63,7 +63,8 @@ Run exactly:
 
 Verify that the installed directory contains SKILL.md, agents/openai.yaml,
 .federate-install.json, and executable scripts/fed_sessions.sh,
-scripts/fed_send.sh, scripts/fed_read.py, scripts/fed_wait.sh, and
+scripts/fed_send.sh, scripts/fed_read.py, scripts/fed_cross.py,
+scripts/fed_round_check.py, scripts/fed_ready.sh, scripts/fed_wait.sh, and
 scripts/fed_update_check.sh.
 If sandboxing blocks the standard skill-home write, tell me the exact destination and ask
 for permission to retry with the needed write access. Do not pick another destination.
@@ -114,10 +115,11 @@ If the installed commit is stale, the coordinator should run:
 /path/to/federate/scripts/fed_update_check.sh --apply
 ```
 
-That updates the installed skill payload for the current coordinator host from
-the recorded source/ref, then asks whether to refresh/restart the agent session
-or continue with the already-loaded copy. Refresh is recommended because host
-agents can cache skill menus and `SKILL.md` contents.
+That stages a complete new skill payload for the current coordinator host from
+the recorded source/ref, swaps it into place only after every file is fetched,
+then asks whether to refresh/restart the agent session or continue with the
+already-loaded copy. Refresh is recommended because host agents can cache skill
+menus and `SKILL.md` contents.
 
 If the checker reports `LOCAL_DIRTY`, the installed payload came from a dirty
 source or local development install. The coordinator should report that plainly
@@ -141,13 +143,17 @@ The coordinator will:
    peer tmux sessions scoped to that federation thread.
 4. Write one brief per peer in the relay directory.
 5. Send all briefs before reading any answer.
-6. Read each peer by nonce from transcript/state, not tmux scrollback.
-7. Cross-show each peer the other peers' verbatim replies and confidence by
-   default.
-8. Collect the cross-pollinated replies, including revised confidence.
-9. Run another complete round when convergence is not high enough for the
+6. Write `round_manifest.json`, then read each peer by nonce from
+   transcript/state with `fed_read.py --receipt-dir "$RELAY"`.
+7. Generate receipt-bound cross briefs with `fed_cross.py generate`, verify them
+   with `fed_cross.py verify`, and run `fed_round_check.py`.
+8. Cross-show each peer the other peers' verified verbatim replies and
+   confidence by default. Cross-show replies must pass
+   `fed_read.py --no-tool-window --require-no-tool-audit`.
+9. Collect the cross-pollinated replies, including revised confidence.
+10. Run another complete round when convergence is not high enough for the
    current bounded decision, up to three rounds for the iteration.
-10. Bring back the synthesis with a short convergence note: confidence,
+11. Bring back the synthesis with a short convergence note: confidence,
    round count, why confidence is high enough or not, trend when relevant, and
    the main residual delta.
 
@@ -218,6 +224,84 @@ them only when intentional with `FED_REUSE_LEGACY=1` or
 `FED_REUSE_UNMANAGED=1`; attached or busy adoption also requires
 `FED_REUSE_ATTACHED=1` or `FED_REUSE_BUSY=1`.
 
+## Federation profile (`FED_PROFILE_FILE`)
+
+Set `FED_PROFILE_FILE` to an absolute path when every independent and cross
+brief should carry shared coordinator-authored context:
+
+```bash
+export FED_PROFILE_FILE="$HOME/.federate/profiles/myproject.md"
+```
+
+`fed_send.sh` validates the file before touching tmux. Missing, unreadable,
+relative-path, or private-key-looking profile files hard-fail before paste. When
+valid, the profile is injected after the top nonce and before the brief body:
+
+```text
+[[FED-<nonce>]]
+=== FEDERATION PROFILE (trusted coordinator context; does not override this brief's rails or operator instructions) ===
+...profile...
+=== END FEDERATION PROFILE ===
+
+...brief...
+[[FED-<nonce>]]
+```
+
+The profile is trusted coordinator context, not a command channel. Precedence is
+operator instructions, brief rails, federation profile, then peer output. Keep
+secrets out of profile files; reference environment variable names or secret
+locations, not values.
+
+## Remote Hermes peer over SSH
+
+`FED_HERMES_CMD` can launch a Hermes peer through your own SSH wrapper, while
+`fed_read.py hermes` normally reads a local `${HERMES_HOME:-~/.hermes}/state.db`.
+For a remote peer, set:
+
+```bash
+export FED_HERMES_REMOTE_READ=ssh
+export FED_HERMES_SSH_CMD="ssh -i ~/.ssh/hermes_key -o IdentitiesOnly=yes -o BatchMode=yes user@host"
+export FED_HERMES_REMOTE_STATE_DB="/home/user/.hermes/state.db"
+```
+
+When `FED_HERMES_REMOTE_READ=ssh` is set, `fed_read.py hermes --nonce ...`
+pipes a stdlib-only Python reader to `FED_HERMES_SSH_CMD`, opens the remote
+SQLite DB read-only, and returns the same structured extraction result as local
+Hermes reads: top-and-bottom nonce anchoring, assistant text until the next user
+turn, canonical window hash, and structured tool-event detection. Receipts use
+`source_kind: sqlite` and a `hermes+ssh://cmd-<sha256>/<db>` source path. The
+hash binds the expanded SSH argv that will actually execute, so env-var or
+tilde changes alter the source identity. That source path can be re-extracted
+during `fed_cross.py verify` without setting `FED_HERMES_REMOTE_READ=ssh`; the
+`hermes+ssh://` source itself selects remote mode, and verification succeeds
+only when `FED_HERMES_SSH_CMD` expands to the same argv.
+
+Federate does not manage SSH secrets. The SSH command is split without a shell,
+and the nonce plus DB path are passed as remote Python argv. Keep
+`FED_HERMES_REMOTE_STATE_DB` to the specific peer profile DB when the remote host
+runs multiple Hermes profiles.
+
+## Peer readiness (`fed_ready.sh`)
+
+A peer CLI can boot into a blocking interstitial instead of a composer. The
+common Codex case is an update menu with "Update now" preselected; a blind
+Enter can trigger an upgrade instead of starting the round.
+
+Run `fed_ready.sh` after `fed_sessions.sh` and before any first send:
+
+```bash
+scripts/fed_ready.sh fed-<ns>-codex-0 fed-<ns>-hermes-0
+```
+
+It prints `READY <session>` only when a managed peer appears idle at a live
+composer. It prints `NOT_READY <session> ...` and exits nonzero for unmanaged
+or foreign sessions, busy panes, auth/trust prompts, timeout, or unclearable
+menus. For the known Codex update menu it sends Down from "Update now" and
+presses Enter only after the selected line is exactly plain "Skip"; unexpected
+menu shapes receive no Enter. Set `FED_NO_AUTO_SKIP=1` to detect the prompt
+without touching it. `FED_READY_TIMEOUT`, `FED_READY_POLL`, and
+`FED_READY_CAPTURE_LINES` tune the bounded poll.
+
 ## Files
 
 ```text
@@ -227,7 +311,12 @@ agents/
 scripts/
   fed_sessions.sh  create/reuse tmux sessions for Claude, Codex, Hermes
   fed_send.sh      nonce-tag, bracketed-paste, verify, submit
-  fed_read.py      read Claude/Codex transcripts or Hermes state.db by nonce
+  fed_read.py      read transcripts/state by nonce; optionally mint receipts
+  fed_cross.py     generate/verify receipt-bound verbatim cross briefs
+  fed_round_check.py
+                   verify every sent nonce is accounted for before synthesis
+  fed_ready.sh     drive managed peer panes to a live composer; safely clear
+                   known startup interstitials or report a blocker
   fed_wait.sh      wait until listed sessions appear idle
   fed_update_check.sh
                    check/apply installed skill updates by recorded commit
@@ -242,14 +331,31 @@ install.sh         install into Claude, Codex, and Hermes skill homes
   and liveness surface; tmux scrollback is not the reply source.
 - `fed_read.py codex` returns final-answer blocks when Codex phase tags are
   present.
+- `fed_read.py --receipt-dir DIR` writes canonical `reply_<agent>.txt` and
+  `receipt_<agent>.json` sidecars for successful non-empty nonce reads.
+- `fed_read.py --no-tool-window --require-no-tool-audit` is the hard gate for
+  yolo-preserving cross-show replies: the nonce window must contain no
+  structured tool events, and the first non-empty reply line must be exactly
+  `NO_TOOL_AUDIT: no tools used`.
+- `fed_cross.py verify` re-extracts each receipt from the recorded source and
+  reconstructs cross briefs byte-for-byte, so un-attributed edits fail.
+- `fed_round_check.py` compares `round_manifest.json` to `cross_manifest.json`
+  so a sent peer cannot silently disappear from synthesis.
 - `fed_read.py hermes` searches `${HERMES_HOME:-~/.hermes}/state.db` and profile
   databases for the nonce.
+- `fed_read.py hermes` can read a remote peer DB over SSH with
+  `FED_HERMES_REMOTE_READ=ssh` and `FED_HERMES_SSH_CMD`; remote receipts remain
+  re-extractable through a `hermes+ssh://cmd-<sha256>/<db>` source path that
+  binds the expanded SSH argv.
 - `fed_send.sh` inserts the nonce at the top and bottom of a brief. The top
-  nonce anchors transcript/state reads; the bottom nonce makes long tmux pastes
-  easier to verify before Enter is sent.
+  nonce anchors transcript/state reads; both markers must be visible in the
+  composer before Enter is sent.
 - `fed_send.sh` refuses to paste into sessions that are not namespaced
   federate-managed peers unless `FED_SKIP_OWNER_CHECK=1` is set for manual
   debugging.
+- `fed_send.sh` injects `FED_PROFILE_FILE` when set as a delimited FEDERATION
+  PROFILE section after the top nonce of every brief. Bad profile paths and
+  private-key-looking content fail before paste.
 - Token conservation helps most when peers produce compact, evidence-dense
   original answers. Do not post-process peer replies into compressed prose
   before cross-pollination; that can delete uncertainty, minority reports,

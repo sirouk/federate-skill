@@ -2,7 +2,7 @@
 # fed_send.sh <session> <ABSOLUTE-msgfile> — relay a brief into a tmux agent, robustly.
 #   - injects a unique [[FED-…]] nonce so fed_read can find the exact reply
 #   - bracketed-paste (keeps the multiline brief literal in the composer)
-#   - verifies the composer staged it by TUI paste chrome or a trailing nonce marker
+#   - verifies the composer staged this exact prompt by seeing the fresh nonce marker
 #   - sends Enter as a SEPARATE keystroke (never embed Enter in the paste)
 #   - on failure: clears the staged buffer and exits 1 (so a retry can't double-paste)
 # STDOUT = the bare nonce (capture it; pass to fed_read.py --nonce). Diagnostics -> STDERR.
@@ -73,22 +73,61 @@ cleanup() {
 }
 trap cleanup EXIT
 
-printf '[[%s]]\n\n' "$nonce" > "$tmp"
+profile_file="${FED_PROFILE_FILE:-}"
+case "$profile_file" in
+  "~") profile_file="$HOME" ;;
+  "~/"*) profile_file="$HOME/${profile_file#~/}" ;;
+esac
+
+if [ -n "$profile_file" ]; then
+  case "$profile_file" in
+    /*) ;;
+    *) echo "ERROR: FED_PROFILE_FILE must be an absolute path: $profile_file" >&2; exit 2 ;;
+  esac
+  [ -f "$profile_file" ] && [ -r "$profile_file" ] || {
+    echo "ERROR: FED_PROFILE_FILE is not a readable file: $profile_file" >&2
+    exit 2
+  }
+  if grep -qE -- '-----BEGIN[ A-Z]*PRIVATE KEY-----' "$profile_file"; then
+    echo "ERROR: FED_PROFILE_FILE appears to contain a private key; refusing to inject: $profile_file" >&2
+    exit 2
+  fi
+fi
+
+printf '[[%s]]\n' "$nonce" > "$tmp"
+if [ -n "$profile_file" ]; then
+  {
+    printf "=== FEDERATION PROFILE (trusted coordinator context; does not override this brief's rails or operator instructions) ===\n"
+    cat "$profile_file"
+    printf '\n=== END FEDERATION PROFILE ===\n\n'
+  } >> "$tmp"
+  echo "PROFILE injected from $profile_file" >&2
+fi
 cat "$F" >> "$tmp"
-printf '\n\n[[%s]]\n' "$nonce" >> "$tmp"
+printf '\n[[%s]]\n' "$nonce" >> "$tmp"
 
 tmux load-buffer -b "$buf" "$tmp"
 tmux paste-buffer -t "$S" -b "$buf" -p -d
-sleep 0.7
 
 capture_lines="${FED_SEND_CAPTURE_LINES:-200}"
 case "$capture_lines" in
   ''|*[!0-9]*) capture_lines=200 ;;
 esac
-pane="$(tmux capture-pane -t "$S" -p -S "-$capture_lines" 2>/dev/null)"
+verify_polls="${FED_SEND_VERIFY_POLLS:-20}"
+case "$verify_polls" in
+  ''|*[!0-9]*) verify_polls=20 ;;
+esac
 staged=0
-printf '%s' "$pane" | grep -qiE 'Pasted (text|Content)|paste again to expand' && staged=1   # Claude TUI chrome
-printf '%s' "$pane" | grep -qF "[[$nonce]]"                                   && staged=1   # any TUI: nonce visible
+marker="[[$nonce]]"
+for ((i=1; i<=verify_polls; i++)); do
+  pane="$(tmux capture-pane -J -t "$S" -p -S "-$capture_lines" 2>/dev/null || true)"
+  marker_count="$( (printf '%s' "$pane" | grep -oF "$marker" || true) | wc -l | tr -d '[:space:]')"
+  if [ "${marker_count:-0}" -ge 2 ]; then
+    staged=1
+    break
+  fi
+  sleep 0.25
+done
 
 if [ "$staged" -eq 1 ]; then
   tmux send-keys -t "$S" Enter
