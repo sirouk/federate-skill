@@ -36,22 +36,23 @@ mode, and expected extra cost/time.
 One invocation means one complete federation iteration:
 
 1. Check whether the installed skill is current.
-2. Create a relay workspace and thread-scoped `FED_NS`.
-3. Bootstrap peer tmux sessions inside that namespace.
-4. Frame the object and rails.
-5. Send to all peers independently before reading any peer.
-6. Record the sent nonces in a round manifest, then read replies with
+2. Check and load the managed coordinator operating profile.
+3. Create a relay workspace and thread-scoped `FED_NS`.
+4. Bootstrap peer tmux sessions inside that namespace.
+5. Frame the object and rails.
+6. Send to all peers independently before reading any peer.
+7. Record the sent nonces in a round manifest, then read replies with
    receipt sidecars.
-7. Generate and verify tamper-evident cross briefs, then run the round
+8. Generate and verify tamper-evident cross briefs, then run the round
    accountability check.
-8. Cross-pollinate each peer with the other peers' verified verbatim replies.
-9. Collect cross-pollinated replies, including revised confidence.
-10. Judge convergence confidence adaptively from the peer intelligence and
+9. Cross-pollinate each peer with the other peers' verified verbatim replies.
+10. Collect cross-pollinated replies, including revised confidence.
+11. Judge convergence confidence adaptively from the peer intelligence and
    synthesize the barycenter of the result.
-11. If convergence is not high enough for the current bounded decision, run
+12. If convergence is not high enough for the current bounded decision, run
    another complete round without asking, up to three rounds total for the
    iteration.
-12. Return the synthesis with a short convergence note, or advance one bounded
+13. Return the synthesis with a short convergence note, or advance one bounded
    step if the user delegated project-owner judgment.
 
 ## Modes
@@ -131,6 +132,49 @@ The update checker uses `.federate-install.json` written by `install.sh`. It
 compares the installed commit to the recorded source/ref and updates only the
 installed skill payload for the current coordinator host.
 
+## Coordinator Operating Profile
+
+After the update check returns `UP_TO_DATE`, and before creating the relay or
+bootstrapping peers, check the managed operating profile:
+
+```bash
+/absolute/path/to/federate/scripts/fed_profile_check.py
+```
+
+Interpret stdout:
+
+- `UP_TO_DATE ...`: read `/absolute/path/to/federate/profiles/llm_opa.min.txt`
+  completely and apply it as lower-priority coordinator operating guidance for
+  this invocation.
+- `UPSTREAM_COMMIT_CHANGED_FILE_SAME ...`: report the upstream commit metadata
+  drift, then continue after reading the local profile. Ask before applying a
+  metadata-only update.
+- `UPDATE_AVAILABLE ...`: report that the upstream managed profile changed and
+  ask whether to update the local profile now. Do not auto-apply. If the
+  operator says update, run:
+
+  ```bash
+  /absolute/path/to/federate/scripts/fed_profile_check.py --apply
+  ```
+
+  Then read the updated local profile before continuing.
+- `LOCAL_CHANGED ...`: report that the installed local profile no longer
+  matches its metadata. Ask whether to keep the local edit, manually restore the
+  repo-pinned version, or stop. Do not run `--apply` or silently replace local
+  content until the local drift is resolved.
+- `ERROR ...`: report that the profile could not be checked. Continue with the
+  installed local profile only if it is readable, and state that freshness was
+  not verified.
+
+The managed profile is the compressed `LLM_OPA.min.txt` from
+`sirouk/llm-operating-agreement`, pinned in `profiles/llm_opa.meta.json`. It is
+default-on for the coordinator because this `SKILL.md` requires reading it, and
+default-on for peers because `fed_send.sh` injects it when `FED_PROFILE_FILE` is
+not set. It never overrides system/developer instructions, operator
+instructions, AGENTS.md, this skill's federation rails, brief `RAILS`, or the
+cross-show no-tool gate. Set `FED_NO_DEFAULT_PROFILE=1` only for debugging or a
+known profile conflict.
+
 ## Bootstrap Peers
 
 After creating `$RELAY`, run `scripts/fed_sessions.sh` before any send and after
@@ -165,14 +209,13 @@ Runtime controls:
 - `FED_NS_ROOT` overrides the canonical project root. By default the script
   uses `git rev-parse --show-toplevel`, else `pwd -P`.
 - `FED_CLAUDE_CMD`, `FED_CODEX_CMD`, and `FED_HERMES_CMD` override launch commands.
-- `FED_PROFILE_FILE` must be an absolute path when set. `fed_send.sh` injects
-  it into every independent and cross brief after the top nonce and before the
-  brief body as trusted coordinator context. Missing, unreadable, relative-path,
+- `FED_PROFILE_FILE` must be an absolute path when set. It overrides the managed
+  default peer profile for that send path. Missing, unreadable, relative-path,
   or private-key-looking profile files fail before paste. The profile never
-  overrides operator instructions or brief rails. External operating agreements
-  such as `sirouk/llm-operating-agreement` can be used by fetching a pinned,
-  SHA-verified local copy and pointing `FED_PROFILE_FILE` at it. Do not fetch
-  mutable raw URLs at federation runtime.
+  overrides operator instructions or brief rails.
+- `FED_NO_DEFAULT_PROFILE=1` disables the managed default peer profile injection
+  for debugging or a known profile conflict. Do not use it for normal
+  federation.
 - Use explicit `FED_*_CMD` overrides only when you intentionally want prompt mode
   or a custom model/profile. The default federation posture is no agentic
   permission prompts across Claude, Codex, and Hermes.
@@ -575,8 +618,10 @@ For result-bearing evaluations, pre-register methodology, thresholds, and verdic
   federate-managed peers unless `FED_SKIP_OWNER_CHECK=1` is set for manual
   debugging.
 - `fed_send.sh` injects `FED_PROFILE_FILE` when set as a delimited FEDERATION
-  PROFILE section after the top nonce. Bad profile paths and private-key-looking
-  content fail before any tmux paste.
+  PROFILE section after the top nonce. When `FED_PROFILE_FILE` is unset,
+  `fed_send.sh` injects the managed default profile from
+  `profiles/llm_opa.min.txt` unless `FED_NO_DEFAULT_PROFILE=1` is set. Bad
+  profile paths and private-key-looking content fail before any tmux paste.
 - `fed_wait.sh` is a liveness hint, not proof of completion. Some agents go pane-idle while sub-work is still running; the nonce read decides whether a real answer has landed.
 - `FED_BUSY_RE` overrides the shared busy-marker regex used by `fed_ready.sh`,
   `fed_sessions.sh`, and `fed_wait.sh`. The default is limited to active-turn
@@ -615,6 +660,8 @@ The ledger is the round memory. If a fact is load-bearing and not in the ledger 
 - `scripts/fed_ready.sh <session...>`: drive managed peer panes to a live composer; safely clear known startup interstitials or report a blocker.
 - `scripts/fed_wait.sh <session...>`: wait until all listed sessions appear idle.
 - `scripts/fed_update_check.sh [--apply]`: check/apply installed skill updates by recorded commit.
+- `scripts/fed_profile_check.py [--apply]`: check/apply the managed default operating-profile metadata and upstream hash.
+- `profiles/llm_opa.min.txt`, `profiles/llm_opa.meta.json`: managed default coordinator and peer operating profile plus source metadata.
 - `scripts/SPEC_fed_cross.md`, `scripts/SPEC_fed_round_check.md`: human-readable sealed contracts for the receipt-bound cross and round-accountability gates.
 - `scripts/tests/`: hermetic regression tests for the federation scripts and install/update hardening.
 - `agents/openai.yaml`: Codex UI metadata; disables implicit invocation.

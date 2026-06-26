@@ -107,12 +107,16 @@ class UpdateHardening(unittest.TestCase):
         if not (ROOT / ".git").exists():
             self.skipTest("requires git checkout")
         expected = [
+            "profiles/llm_opa.meta.json",
+            "profiles/llm_opa.min.txt",
             "scripts/SPEC_fed_cross.md",
             "scripts/SPEC_fed_round_check.md",
             "scripts/fed_cross.py",
+            "scripts/fed_profile_check.py",
             "scripts/fed_ready.sh",
             "scripts/fed_round_check.py",
             "scripts/tests/test_fed_cross.py",
+            "scripts/tests/test_fed_profile_check.py",
             "scripts/tests/test_busy_regex_defaults.py",
             "scripts/tests/test_fed_read_receipts_impl.py",
             "scripts/tests/test_fed_ready.py",

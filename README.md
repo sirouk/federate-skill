@@ -198,11 +198,12 @@ seals the failing test, fixture, oracle, assertion, or precise expected behavior
 before implementation begins. Then an implementation owner edits, and a separate
 reviewer/verifier checks the result when enough peers are available.
 
-If you want every peer brief to carry shared behavioral guidance, use an opt-in
-federation profile via `FED_PROFILE_FILE`. One suitable external profile is
-[`sirouk/llm-operating-agreement`](https://github.com/sirouk/llm-operating-agreement);
-fetch a pinned local copy and verify it as described below rather than fetching
-a mutable raw URL during each federation round.
+Federate ships a managed default operating profile from
+[`sirouk/llm-operating-agreement`](https://github.com/sirouk/llm-operating-agreement).
+The coordinator checks and reads that local profile at invocation, and peers
+receive it by default in `fed_send.sh` briefs. Profile updates are detected from
+metadata and require operator approval; mutable raw URLs are never fetched in
+the hot path of a federation round.
 
 By default the session bootstrap uses namespaced no-prompt/yolo peer commands:
 `IS_SANDBOX=1 claude --dangerously-skip-permissions`,
@@ -252,18 +253,25 @@ them only when intentional with `FED_REUSE_LEGACY=1` or
 `FED_REUSE_UNMANAGED=1`; attached or busy adoption also requires
 `FED_REUSE_ATTACHED=1` or `FED_REUSE_BUSY=1`.
 
-## Federation profile (`FED_PROFILE_FILE`)
+## Managed Operating Profile
 
-Set `FED_PROFILE_FILE` to an absolute path when every independent and cross
-brief should carry shared coordinator-authored context:
+Federate includes a managed compressed operating profile:
 
-```bash
-export FED_PROFILE_FILE="$HOME/.federate/profiles/myproject.md"
+```text
+profiles/llm_opa.min.txt
+profiles/llm_opa.meta.json
 ```
 
-`fed_send.sh` validates the file before touching tmux. Missing, unreadable,
-relative-path, or private-key-looking profile files hard-fail before paste. When
-valid, the profile is injected after the top nonce and before the brief body:
+`profiles/llm_opa.min.txt` is the compressed `LLM_OPA.min.txt` from
+[`sirouk/llm-operating-agreement`](https://github.com/sirouk/llm-operating-agreement),
+licensed CC BY 4.0 and pinned in metadata by source commit and SHA-256. The
+coordinator checks that metadata with `scripts/fed_profile_check.py`, reads the
+local profile, and applies it as lower-priority operating guidance for the main
+agent. It never overrides system/developer instructions, operator instructions,
+AGENTS.md, `SKILL.md`, brief rails, or the cross-show no-tool gate.
+
+Peer sends use the same managed profile by default. `fed_send.sh` injects it
+after the top nonce and before the brief body:
 
 ```text
 [[FED-<nonce>]]
@@ -275,28 +283,25 @@ valid, the profile is injected after the top nonce and before the brief body:
 [[FED-<nonce>]]
 ```
 
-The profile is trusted coordinator context, not a command channel. Precedence is
-operator instructions, brief rails, federation profile, then peer output. Keep
-secrets out of profile files; reference environment variable names or secret
-locations, not values.
-
-External operating agreements can be used as opt-in profiles. For example,
-[`sirouk/llm-operating-agreement`](https://github.com/sirouk/llm-operating-agreement)
-provides `LLM_OPA.min.txt` under CC BY 4.0. Fetch a pinned commit once, verify
-its SHA-256, store it locally, then point `FED_PROFILE_FILE` at that absolute
-path. Do not fetch a mutable raw `main` URL at federation runtime; that would
-add supply-chain, reliability, token-cost, and peer-independence risk to every
-round. Brief rails, operator instructions, and the cross-show no-tool gate still
-outrank any profile content.
+Before each invocation, the coordinator should run:
 
 ```bash
-mkdir -p "$HOME/.federate/profiles"
-curl -fsSL https://raw.githubusercontent.com/sirouk/llm-operating-agreement/621096ac2781d542b94b8412ff76c3149d19a882/LLM_OPA.min.txt \
-  -o "$HOME/.federate/profiles/llm_opa.min.txt"
-shasum -a 256 "$HOME/.federate/profiles/llm_opa.min.txt"
-# expect: 4318fc58983a73cb896b7cd2769d639fcd5345c55760ac584349ed01125551ea
-export FED_PROFILE_FILE="$HOME/.federate/profiles/llm_opa.min.txt"
+scripts/fed_profile_check.py
 ```
+
+If it reports `UPDATE_AVAILABLE`, the coordinator asks before changing the local
+managed profile and only applies the update after explicit approval with
+`scripts/fed_profile_check.py --apply`. If it reports `LOCAL_CHANGED`, the
+coordinator asks whether to keep the local edit, manually restore the repo-pinned
+version, or stop. This keeps the profile default-on without silently changing the
+main agent or peers from a mutable raw `main` URL.
+
+Set `FED_PROFILE_FILE` to an absolute path to override the managed peer profile
+for sends. Set `FED_NO_DEFAULT_PROFILE=1` only to disable managed peer-profile
+injection for debugging or a known profile conflict. Missing, unreadable,
+relative-path, or private-key-looking profile files hard-fail before paste. Keep
+secrets out of profile files; reference environment variable names or secret
+locations, not values.
 
 ## Remote Hermes peer over SSH
 
@@ -359,6 +364,9 @@ environment needs additional busy markers.
 SKILL.md
 agents/
   openai.yaml       Codex UI metadata and explicit-invocation policy
+profiles/
+  llm_opa.min.txt   managed default coordinator and peer operating profile
+  llm_opa.meta.json source commit, hash, and license metadata
 scripts/
   fed_sessions.sh  create/reuse tmux sessions and print attach commands for
                    Claude, Codex, Hermes
@@ -372,6 +380,8 @@ scripts/
   fed_wait.sh      wait until listed sessions appear idle
   fed_update_check.sh
                    check/apply installed skill updates by recorded commit
+  fed_profile_check.py
+                   check/apply managed operating-profile metadata and hash
 install.sh         install into Claude, Codex, and Hermes skill homes
 .federate-install.json
                    generated install metadata: source, ref, commit, dirty flag, timestamp
@@ -407,8 +417,10 @@ install.sh         install into Claude, Codex, and Hermes skill homes
   federate-managed peers unless `FED_SKIP_OWNER_CHECK=1` is set for manual
   debugging.
 - `fed_send.sh` injects `FED_PROFILE_FILE` when set as a delimited FEDERATION
-  PROFILE section after the top nonce of every brief. Bad profile paths and
-  private-key-looking content fail before paste.
+  PROFILE section after the top nonce of every brief. When unset, it injects
+  the managed default profile from `profiles/llm_opa.min.txt` unless
+  `FED_NO_DEFAULT_PROFILE=1` is set. Bad profile paths and private-key-looking
+  content fail before paste.
 - Token conservation helps most when peers produce compact, evidence-dense
   original answers. Do not post-process peer replies into compressed prose
   before cross-pollination; that can delete uncertainty, minority reports,

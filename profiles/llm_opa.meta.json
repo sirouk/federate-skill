@@ -1,0 +1,11 @@
+{
+  "schema": "federate.managed_profile.v1",
+  "name": "llm-operating-agreement",
+  "path": "profiles/llm_opa.min.txt",
+  "source": "https://github.com/sirouk/llm-operating-agreement.git",
+  "ref": "main",
+  "source_path": "LLM_OPA.min.txt",
+  "commit": "621096ac2781d542b94b8412ff76c3149d19a882",
+  "sha256": "4318fc58983a73cb896b7cd2769d639fcd5345c55760ac584349ed01125551ea",
+  "license": "CC BY 4.0"
+}

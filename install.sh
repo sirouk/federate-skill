@@ -22,6 +22,8 @@ RAW="${FEDERATE_RAW:-https://raw.githubusercontent.com/sirouk/federate-skill/$RE
 FILES=(
   SKILL.md
   agents/openai.yaml
+  profiles/llm_opa.meta.json
+  profiles/llm_opa.min.txt
   scripts/SPEC_fed_cross.md
   scripts/SPEC_fed_round_check.md
   scripts/fed_sessions.sh
@@ -32,7 +34,9 @@ FILES=(
   scripts/fed_ready.sh
   scripts/fed_wait.sh
   scripts/fed_update_check.sh
+  scripts/fed_profile_check.py
   scripts/tests/test_fed_cross.py
+  scripts/tests/test_fed_profile_check.py
   scripts/tests/test_fed_read_receipts_impl.py
   scripts/tests/test_fed_ready.py
   scripts/tests/test_fed_sessions_attach.py

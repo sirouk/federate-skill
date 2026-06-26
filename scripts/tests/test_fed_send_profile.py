@@ -129,7 +129,12 @@ def managed_session() -> dict:
 
 
 class FedSendProfileTests(unittest.TestCase):
-    def run_send(self, message: str, extra_env: dict | None = None):
+    def run_send(
+        self,
+        message: str,
+        extra_env: dict | None = None,
+        use_default_profile: bool = False,
+    ):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             msg = tmp / "brief.md"
@@ -151,8 +156,11 @@ class FedSendProfileTests(unittest.TestCase):
                     "FED_NS_ROOT": "/repo",
                     "FED_SEND_VERIFY_POLLS": "1",
                     "FED_SKIP_OWNER_CHECK": "0",
+                    "FED_NO_DEFAULT_PROFILE": "1",
                 }
             )
+            if use_default_profile:
+                env.pop("FED_NO_DEFAULT_PROFILE", None)
             if extra_env:
                 env.update(extra_env)
 
@@ -241,6 +249,17 @@ class FedSendProfileTests(unittest.TestCase):
         )
         self.assertEqual(payload, expected)
         self.assertIn("PROFILE injected", proc.stderr)
+
+    def test_managed_default_profile_injected_when_not_disabled(self):
+        proc, state, _ = self.run_send("BRIEF BODY\n", use_default_profile=True)
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = state["last_loaded"]
+        nonce = self.nonce_from_payload(payload)
+        self.assertTrue(payload.startswith(f"[[{nonce}]]\n=== FEDERATION PROFILE"))
+        self.assertIn("MODE\noperate autonomously.", payload)
+        self.assertIn("BRIEF BODY\n", payload)
+        self.assertIn("profiles/llm_opa.min.txt", proc.stderr)
 
     def test_missing_profile_hard_fails_before_paste(self):
         proc, state, _ = self.run_send(

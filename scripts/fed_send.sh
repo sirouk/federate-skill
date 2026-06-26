@@ -17,6 +17,8 @@ case "$F" in
 esac
 command -v tmux >/dev/null 2>&1 || { echo "ERROR: tmux not found" >&2; exit 2; }
 tmux has-session -t "$S" 2>/dev/null || { echo "ERROR: no such tmux session: $S" >&2; exit 2; }
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+SKILL_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd)"
 
 sanitize_ns() {
   ns="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g' | cut -c1-48)"
@@ -74,12 +76,19 @@ cleanup() {
 trap cleanup EXIT
 
 profile_file="${FED_PROFILE_FILE:-}"
+if [ -z "$profile_file" ] && [ "${FED_NO_DEFAULT_PROFILE:-0}" != "1" ]; then
+  profile_file="$SKILL_DIR/profiles/llm_opa.min.txt"
+fi
 case "$profile_file" in
   "~") profile_file="$HOME" ;;
   "~/"*) profile_file="$HOME/${profile_file#~/}" ;;
 esac
 
 if [ -n "$profile_file" ]; then
+  if [ "$profile_file" = "$SKILL_DIR/profiles/llm_opa.min.txt" ] && [ ! -f "$profile_file" ]; then
+    echo "ERROR: managed default profile is missing: $profile_file; set FED_NO_DEFAULT_PROFILE=1 to bypass for debugging" >&2
+    exit 2
+  fi
   case "$profile_file" in
     /*) ;;
     *) echo "ERROR: FED_PROFILE_FILE must be an absolute path: $profile_file" >&2; exit 2 ;;
