@@ -651,7 +651,7 @@ def hermes_query_turn_remote_ssh(key=None, source_path=None):
 
 
 def hermes_query_turn(db_path, key=None):
-    uri = f"file:{db_path}?mode=ro"
+    uri = "file:" + urllib.parse.quote(str(db_path), safe="/:") + "?mode=ro"
     con = sqlite3.connect(uri, uri=True, timeout=1)
     con.row_factory = sqlite3.Row
     try:

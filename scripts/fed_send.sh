@@ -113,6 +113,16 @@ capture_lines="${FED_SEND_CAPTURE_LINES:-200}"
 case "$capture_lines" in
   ''|*[!0-9]*) capture_lines=200 ;;
 esac
+payload_lines="$(wc -l < "$tmp" | tr -d '[:space:]')"
+payload_bytes="$(wc -c < "$tmp" | tr -d '[:space:]')"
+case "$payload_lines" in ''|*[!0-9]*) payload_lines=0 ;; esac
+case "$payload_bytes" in ''|*[!0-9]*) payload_bytes=0 ;; esac
+# Pane capture counts visual rows, not just logical prompt lines. The byte term
+# gives wrapped long lines room while keeping compact prompts at the old default.
+min_capture_lines=$((payload_lines + (payload_bytes / 80) + 20))
+if [ "$capture_lines" -lt "$min_capture_lines" ]; then
+  capture_lines="$min_capture_lines"
+fi
 verify_polls="${FED_SEND_VERIFY_POLLS:-20}"
 case "$verify_polls" in
   ''|*[!0-9]*) verify_polls=20 ;;
@@ -122,7 +132,7 @@ marker="[[$nonce]]"
 for ((i=1; i<=verify_polls; i++)); do
   pane="$(tmux capture-pane -J -t "$S" -p -S "-$capture_lines" 2>/dev/null || true)"
   marker_count="$( (printf '%s' "$pane" | grep -oF "$marker" || true) | wc -l | tr -d '[:space:]')"
-  if [ "${marker_count:-0}" -ge 2 ]; then
+  if [ "${marker_count:-0}" -ge 2 ] || printf '%s' "$pane" | grep -qiE 'Pasted (text|Content)|paste again to expand'; then
     staged=1
     break
   fi

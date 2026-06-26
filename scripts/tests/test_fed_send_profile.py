@@ -41,6 +41,12 @@ def buffer_name(args):
             return args[i + 1]
     return None
 
+def capture_start(args):
+    for i, arg in enumerate(args):
+        if arg == "-S" and i + 1 < len(args):
+            return args[i + 1]
+    return None
+
 def session(name):
     return state.setdefault("sessions", {}).setdefault(name, {})
 
@@ -74,13 +80,23 @@ if cmd == "paste-buffer":
     mode = os.environ.get("FAKE_TMUX_PASTE_MODE", "")
     if mode == "top_only":
         session(name)["pane"] = data.splitlines()[0] + "\n"
+    elif mode == "paste_chrome":
+        session(name)["pane"] = "Pasted text. Press Enter to submit.\n"
     else:
         session(name)["pane"] = data
     save()
     sys.exit(0)
 
 if cmd == "capture-pane":
-    print(state.get("sessions", {}).get(target(args), {}).get("pane", ""))
+    pane = state.get("sessions", {}).get(target(args), {}).get("pane", "")
+    start = capture_start(args)
+    state.setdefault("capture_starts", []).append(start)
+    if start and start.startswith("-") and start[1:].isdigit():
+        n = int(start[1:])
+        lines = pane.splitlines()
+        pane = "\n".join(lines[-n:])
+    save()
+    print(pane)
     sys.exit(0)
 
 if cmd == "send-keys":
@@ -176,6 +192,32 @@ class FedSendProfileTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 1)
         self.assertIn("Enter NOT sent", proc.stderr)
         self.assertEqual(state["sessions"]["s"].get("keys", []), ["C-u", "Escape"])
+
+    def test_paste_chrome_submits_when_tui_hides_prompt_text(self):
+        proc, state, _ = self.run_send(
+            "BRIEF BODY",
+            extra_env={"FAKE_TMUX_PASTE_MODE": "paste_chrome"},
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(state["sessions"]["s"].get("keys"), ["Enter"])
+
+    def test_long_prompt_expands_capture_window(self):
+        body = "\n".join(f"line {i}" for i in range(260))
+        proc, state, _ = self.run_send(
+            body,
+            extra_env={"FED_SEND_CAPTURE_LINES": "20"},
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(state["sessions"]["s"].get("keys"), ["Enter"])
+        starts = [
+            int(start[1:])
+            for start in state.get("capture_starts", [])
+            if isinstance(start, str) and start.startswith("-") and start[1:].isdigit()
+        ]
+        self.assertTrue(starts)
+        self.assertGreater(max(starts), 260)
 
     def test_profile_injected_after_top_nonce_before_body(self):
         with tempfile.TemporaryDirectory() as td:

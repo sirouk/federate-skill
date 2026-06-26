@@ -113,8 +113,8 @@ class FedReadReceiptImpl(unittest.TestCase):
             FED_HERMES_REMOTE_STATE_DB=str(db),
         )
 
-    def make_hermes_db(self, rows):
-        db = self.root / "state.db"
+    def make_hermes_db(self, rows, name="state.db"):
+        db = self.root / name
         con = sqlite3.connect(db)
         con.execute(
             "CREATE TABLE messages ("
@@ -241,6 +241,21 @@ class FedReadReceiptImpl(unittest.TestCase):
             capture_output=True, text=True)
         self.assertEqual(p.returncode, 3)
         self.assertIn("NOT FOUND", p.stderr)
+
+    def test_hermes_source_path_uri_metacharacters_are_escaped(self):
+        nonce = "FED-uriissue-1111-2222-3333-uriissuetest"
+        reply = "HERMES_REPLY_FROM_QUESTION_MARK_DB"
+        db = self.make_hermes_db([
+            (1, "s1", "user", "[[%s]]\nbrief body\n[[%s]]" % (nonce, nonce), 1),
+            (2, "s1", "assistant", reply, 1),
+        ], name="state?x.db")
+
+        p = subprocess.run(
+            [sys.executable, str(FED_READ), "hermes", "--nonce", nonce,
+             "--source", str(db)],
+            capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(p.stdout.rstrip("\n"), reply)
 
     def test_remote_hermes_receipt_dir_and_source_reextract(self):
         nonce = "FED-remoterd-1111-2222-3333-remoterdtest"

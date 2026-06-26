@@ -212,7 +212,14 @@ RELAY="$(mktemp -d "$HOME/relay/$(date +%Y%m%d_%H%M%S).XXXXXX")"
 chmod 700 "$RELAY"
 ```
 
-Write briefs, verbatim reads, cross-show files, hashes, and `relay_log.md` there. Relay files can contain proprietary code, prompts, peer output, and secrets accidentally included by peers; keep permissions restrictive and clean them up when retention is no longer needed. Never write relay artifacts into the project under audit.
+Keep `relay_log.md` at `$RELAY`. For each round, create a distinct artifact
+directory such as `$ROUND="$RELAY/round_1"` for that round's briefs, nonce
+files, verbatim reads, receipts, manifests, hashes, and cross-show files. This
+keeps round 2/3 from overwriting round 1 custody artifacts while preserving the
+same thread namespace. Relay files can contain proprietary code, prompts, peer
+output, and secrets accidentally included by peers; keep permissions
+restrictive and clean them up when retention is no longer needed. Never write
+relay artifacts into the project under audit.
 
 ## Iteration Budget
 
@@ -300,7 +307,7 @@ the current bounded step, not by averaging peer scores.
 
 ### 0. Frame
 
-Decide the object: decision, plan, audit finding, fix set, build milestone, or verdict. Write one brief per peer in `$RELAY/brief_<agent>.md`; keep them byte-identical except for salutation/name when possible.
+Decide the object: decision, plan, audit finding, fix set, build milestone, or verdict. Set the current round artifact directory, such as `ROUND="$RELAY/round_1"`, before writing briefs. Write one brief per peer in `$ROUND/brief_<agent>.md`; keep them byte-identical except for salutation/name when possible.
 
 Every brief must include:
 
@@ -322,13 +329,15 @@ always requires explicit operator authorization.
 Send to every available peer before reading any peer. Capture a fresh nonce for each send; never reuse a nonce.
 
 ```bash
-/absolute/path/to/federate/scripts/fed_send.sh "<printed-claude-session>" "$RELAY/brief_claude.md" > "$RELAY/nonce_claude"
-/absolute/path/to/federate/scripts/fed_send.sh "<printed-codex-session>" "$RELAY/brief_codex.md" > "$RELAY/nonce_codex"
+ROUND="$RELAY/round_1"
+mkdir -p "$ROUND"
+/absolute/path/to/federate/scripts/fed_send.sh "<printed-claude-session>" "$ROUND/brief_claude.md" > "$ROUND/nonce_claude"
+/absolute/path/to/federate/scripts/fed_send.sh "<printed-codex-session>" "$ROUND/brief_codex.md" > "$ROUND/nonce_codex"
 # only if HERMES_SESSION was printed:
-/absolute/path/to/federate/scripts/fed_send.sh "<printed-hermes-session>" "$RELAY/brief_hermes.md" > "$RELAY/nonce_hermes"
+/absolute/path/to/federate/scripts/fed_send.sh "<printed-hermes-session>" "$ROUND/brief_hermes.md" > "$ROUND/nonce_hermes"
 ```
 
-Immediately write `$RELAY/round_manifest.json` for the independent phase,
+Immediately write `$ROUND/round_manifest.json` for the independent phase,
 before any read or cross generation. It must use schema
 `federate.round_manifest.v1` and map every sent nonce to its peer agent,
 session, and send time:
@@ -357,15 +366,15 @@ Wait for the sessions you actually sent to:
 ```
 
 Then read by nonce from transcripts/state, not tmux scrollback. For the
-independent phase, mint receipt sidecars into `$RELAY`; `fed_read.py` owns the
+independent phase, mint receipt sidecars into `$ROUND`; `fed_read.py` owns the
 canonical `reply_<agent>.txt` bytes, so do not create those files with stdout
 redirection:
 
 ```bash
-/absolute/path/to/federate/scripts/fed_read.py claude --nonce "$(cat "$RELAY/nonce_claude")" --receipt-dir "$RELAY"
-/absolute/path/to/federate/scripts/fed_read.py codex  --nonce "$(cat "$RELAY/nonce_codex")"  --receipt-dir "$RELAY"
+/absolute/path/to/federate/scripts/fed_read.py claude --nonce "$(cat "$ROUND/nonce_claude")" --receipt-dir "$ROUND"
+/absolute/path/to/federate/scripts/fed_read.py codex  --nonce "$(cat "$ROUND/nonce_codex")"  --receipt-dir "$ROUND"
 # only if you sent to Hermes:
-/absolute/path/to/federate/scripts/fed_read.py hermes --nonce "$(cat "$RELAY/nonce_hermes")" --receipt-dir "$RELAY"
+/absolute/path/to/federate/scripts/fed_read.py hermes --nonce "$(cat "$ROUND/nonce_hermes")" --receipt-dir "$ROUND"
 ```
 
 Sanity-check each read before using it:
@@ -378,8 +387,8 @@ Sanity-check each read before using it:
 ### 2. Cross-Pollinate
 
 This is the load-bearing hop and is mandatory by default. For each peer, create
-`$RELAY/cross_<agent>.md` with `fed_cross.py`, not by hand. First write a
-single coordinator framing file, such as `$RELAY/cross_framing.md`, containing
+`$ROUND/cross_<agent>.md` with `fed_cross.py`, not by hand. First write a
+single coordinator framing file, such as `$ROUND/cross_framing.md`, containing
 your separate coordinator framing plus the tight confirm/dispute/reconcile ask
 and revised confidence poll.
 
@@ -387,9 +396,9 @@ Then generate and verify the cross briefs from the receipt-bound independent
 replies:
 
 ```bash
-/absolute/path/to/federate/scripts/fed_cross.py generate --relay "$RELAY" --peers "claude,codex,hermes" --framing "$RELAY/cross_framing.md"
-/absolute/path/to/federate/scripts/fed_cross.py verify --relay "$RELAY"
-/absolute/path/to/federate/scripts/fed_round_check.py --relay "$RELAY"
+/absolute/path/to/federate/scripts/fed_cross.py generate --relay "$RELAY" --round 1 --peers "claude,codex,hermes" --framing "$ROUND/cross_framing.md"
+/absolute/path/to/federate/scripts/fed_cross.py verify --relay "$RELAY" --round 1
+/absolute/path/to/federate/scripts/fed_round_check.py --relay "$RELAY" --round 1
 ```
 
 The coordinator framing must require the receiving peer to start its cross-reply
@@ -418,17 +427,25 @@ cross files to redact, because post-generation edits must make `fed_cross.py
 verify` fail. With three peers, each peer sees the other two peers' verbatim
 replies. With two peers, mirror the two replies.
 
-Send all cross briefs before reading any cross reply, wait, and read by the new
-nonces with the cross-show gates enabled:
+Send all cross briefs before reading any cross reply:
 
 ```bash
-/absolute/path/to/federate/scripts/fed_read.py claude --nonce "$(cat "$RELAY/nonce_cross_claude")" --no-tool-window --require-no-tool-audit
-/absolute/path/to/federate/scripts/fed_read.py codex  --nonce "$(cat "$RELAY/nonce_cross_codex")"  --no-tool-window --require-no-tool-audit
-/absolute/path/to/federate/scripts/fed_read.py hermes --nonce "$(cat "$RELAY/nonce_cross_hermes")" --no-tool-window --require-no-tool-audit
+/absolute/path/to/federate/scripts/fed_send.sh "<printed-claude-session>" "$ROUND/cross_claude.md" > "$ROUND/nonce_cross_claude"
+/absolute/path/to/federate/scripts/fed_send.sh "<printed-codex-session>" "$ROUND/cross_codex.md" > "$ROUND/nonce_cross_codex"
+# only if Hermes produced a valid independent receipt and was included in --peers:
+/absolute/path/to/federate/scripts/fed_send.sh "<printed-hermes-session>" "$ROUND/cross_hermes.md" > "$ROUND/nonce_cross_hermes"
+```
+
+Then wait and read by the new nonces with the cross-show gates enabled:
+
+```bash
+/absolute/path/to/federate/scripts/fed_read.py claude --nonce "$(cat "$ROUND/nonce_cross_claude")" --no-tool-window --require-no-tool-audit
+/absolute/path/to/federate/scripts/fed_read.py codex  --nonce "$(cat "$ROUND/nonce_cross_codex")"  --no-tool-window --require-no-tool-audit
+/absolute/path/to/federate/scripts/fed_read.py hermes --nonce "$(cat "$ROUND/nonce_cross_hermes")" --no-tool-window --require-no-tool-audit
 ```
 
 Store cross-reply reads in distinct files or a distinct receipt directory such
-as `$RELAY/cross_reads`; do not overwrite the independent `reply_<agent>.txt`
+as `$ROUND/cross_reads`; do not overwrite the independent `reply_<agent>.txt`
 and `receipt_<agent>.json` files that back the verified `cross_manifest.json`.
 If `fed_read.py` reports a structured tool event or missing `NO_TOOL_AUDIT`
 line, stop synthesis and report the failed cross-show gate.
@@ -530,7 +547,7 @@ For result-bearing evaluations, pre-register methodology, thresholds, and verdic
   contains structured tool events. `--require-no-tool-audit` requires the first
   non-empty reply line to be exactly `NO_TOOL_AUDIT: no tools used`. Use both
   for cross-show reply reads.
-- `fed_cross.py generate` creates length-prefixed cross briefs from receipt-bound replies; `fed_cross.py verify` re-extracts each reply from the recorded transcript/source and reconstructs each cross brief byte-for-byte.
+- `fed_cross.py generate [--round N]` creates length-prefixed cross briefs from receipt-bound replies; `fed_cross.py verify [--round N]` re-extracts each reply from the recorded transcript/source and reconstructs each cross brief byte-for-byte.
 - `fed_round_check.py` compares `round_manifest.json` to `cross_manifest.json`
   so every sent nonce is accounted by a source receipt or an explicit
   unavailable entry with evidence.
@@ -583,8 +600,8 @@ The ledger is the round memory. If a fact is load-bearing and not in the ledger 
 - `scripts/fed_sessions.sh`: start/reuse namespaced tmux peer sessions for Claude, Codex, and Hermes; prints namespace, root, and session names.
 - `scripts/fed_send.sh <session> <msgfile>`: nonce-tag, bracketed-paste, verify, and submit; stdout is the bare nonce.
 - `scripts/fed_read.py <claude|codex|hermes> --nonce N [--receipt-dir DIR]`: return the peer's verbatim answer anchored by nonce and optionally mint receipt sidecars.
-- `scripts/fed_cross.py generate|verify`: create and verify receipt-bound, tamper-evident cross briefs.
-- `scripts/fed_round_check.py --relay DIR`: fail the round if any sent nonce is omitted or lacks unavailable evidence.
+- `scripts/fed_cross.py generate|verify [--round N]`: create and verify receipt-bound, tamper-evident cross briefs.
+- `scripts/fed_round_check.py --relay DIR [--round N]`: fail the round if any sent nonce is omitted or lacks unavailable evidence.
 - `scripts/fed_ready.sh <session...>`: drive managed peer panes to a live composer; safely clear known startup interstitials or report a blocker.
 - `scripts/fed_wait.sh <session...>`: wait until all listed sessions appear idle.
 - `scripts/fed_update_check.sh [--apply]`: check/apply installed skill updates by recorded commit.

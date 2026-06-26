@@ -63,6 +63,18 @@ def parse_peers(csv):
     return peers
 
 
+def artifact_dir(relay, round_value=None, create=False):
+    if not round_value:
+        return relay
+    round_text = str(round_value)
+    if not re.fullmatch(r"[1-9][0-9]*", round_text):
+        raise UsageError("--round must be a positive integer")
+    path = relay / f"round_{round_text}"
+    if create:
+        path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def vbegin_line(source, receiver, n, h):
     return (
         f"=== BEGIN FEDERATE VERBATIM v1 source={source} receiver={receiver} "
@@ -156,6 +168,7 @@ def generate(args):
     relay = Path(args.relay).expanduser()
     if not relay.is_dir():
         raise UsageError(f"relay directory not found: {relay}")
+    relay = artifact_dir(relay, args.round, create=True)
     peers = parse_peers(args.peers)
     sources, replies = load_sources(relay, peers)
     framing_payload = None
@@ -185,6 +198,9 @@ def generate(args):
         "sources": sources,
         "cross_files": {},
     }
+    if args.round:
+        manifest["round"] = int(args.round)
+        manifest["artifact_dir"] = f"round_{args.round}"
 
     for receiver in peers:
         parts = [PREAMBLE_BYTES, b"\n\n", f"RECEIVER: {receiver}\n\n".encode("ascii")]
@@ -387,6 +403,7 @@ def verify_cross_files(relay, peers, manifest, replies):
 
 def verify(args):
     relay = Path(args.relay).expanduser()
+    relay = artifact_dir(relay, args.round)
     manifest_path = relay / "cross_manifest.json"
     if not manifest_path.is_file():
         raise UsageError(f"missing manifest: {manifest_path}")
@@ -413,9 +430,11 @@ def main():
     gen.add_argument("--relay", required=True)
     gen.add_argument("--peers", required=True)
     gen.add_argument("--framing")
+    gen.add_argument("--round")
     gen.add_argument("--overwrite", action="store_true")
     ver = sub.add_parser("verify")
     ver.add_argument("--relay", required=True)
+    ver.add_argument("--round")
     args = ap.parse_args()
     try:
         if args.cmd == "generate":

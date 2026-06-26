@@ -93,6 +93,14 @@ class FedRoundCheckContract(unittest.TestCase):
             text=True,
         )
 
+    def run_check_round(self, round_number):
+        return subprocess.run(
+            [sys.executable, str(FED_ROUND_CHECK), "--relay", str(self.relay),
+             "--round", str(round_number)],
+            capture_output=True,
+            text=True,
+        )
+
     def test_00_fed_round_check_present(self):
         p = self.run_check()
         self.assertNotIn("No such file or directory", p.stderr,
@@ -103,6 +111,22 @@ class FedRoundCheckContract(unittest.TestCase):
         self.write_cross(["claude", "codex"])
         p = self.run_check()
         self.assertEqual(p.returncode, 0, p.stderr)
+
+    def test_round_option_scopes_manifests_under_round_directory(self):
+        root = self.relay
+        round_dir = root / "round_2"
+        round_dir.mkdir()
+        self.relay = round_dir
+        try:
+            self.write_round(["claude", "codex"])
+            self.write_cross(["claude", "codex"])
+        finally:
+            self.relay = root
+
+        p = self.run_check_round(2)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertFalse((root / "round_manifest.json").exists())
+        self.assertFalse((root / "cross_manifest.json").exists())
 
     def test_expected_nonce_missing_fails(self):
         self.write_round(["claude", "codex", "hermes"])

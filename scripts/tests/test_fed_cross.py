@@ -583,6 +583,30 @@ class FedCrossContract(unittest.TestCase):
             self.assertNotEqual(v.returncode, 0,
                 "trailing bytes after last block (no framing) bypassed verify (F1). stdout=%r" % v.stdout)
 
+    def test_27_round_option_scopes_outputs_under_round_directory(self):
+        self.require_mint()
+        round_dir = self.relay / "round_2"
+        round_dir.mkdir()
+        for peer in self.PEERS:
+            (round_dir / f"reply_{peer}.txt").write_bytes(
+                (self.relay / f"reply_{peer}.txt").read_bytes())
+            (round_dir / f"receipt_{peer}.json").write_bytes(
+                (self.relay / f"receipt_{peer}.json").read_bytes())
+        framing = round_dir / "framing.txt"
+        framing.write_bytes(b"round 2 framing\n")
+
+        p = self.run_cross(
+            "generate", "--relay", str(self.relay), "--round", "2",
+            "--peers", ",".join(self.PEERS), "--framing", str(framing))
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertFalse((self.relay / "cross_manifest.json").exists())
+        self.assertTrue((round_dir / "cross_manifest.json").is_file())
+        for peer in self.PEERS:
+            self.assertTrue((round_dir / f"cross_{peer}.md").is_file())
+
+        v = self.run_cross("verify", "--relay", str(self.relay), "--round", "2")
+        self.assertEqual(v.returncode, 0, v.stderr)
+
 
 class FedReadReceiptEmission(unittest.TestCase):
     """fed_read --receipt-dir over the DEFAULT store (CODEX_HOME glob, no

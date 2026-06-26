@@ -95,12 +95,14 @@ window and not the file bytes, the receipt stays valid as the file/db grows.
 ## Part 2 — `fed_cross.py`
 
 ```
-fed_cross.py generate --relay <DIR> --peers <csv> [--framing <FILE>] [--overwrite]
-fed_cross.py verify   --relay <DIR>
+fed_cross.py generate --relay <DIR> [--round N] --peers <csv> [--framing <FILE>] [--overwrite]
+fed_cross.py verify   --relay <DIR> [--round N]
 ```
 
-Per peer P, inputs from `<DIR>`: `reply_<P>.txt` and `receipt_<P>.json` (as
-produced by `fed_read --receipt-dir`).
+Without `--round`, inputs from `<DIR>` are `reply_<P>.txt` and
+`receipt_<P>.json` (as produced by `fed_read --receipt-dir`). With `--round N`,
+the artifact directory is `<DIR>/round_N`, allowing one relay namespace to hold
+multiple complete rounds without overwriting custody artifacts.
 
 `fed_cross verify` locates `fed_read.py` as its sibling in the same directory
 (override with env `FED_READ` for tests).
@@ -116,7 +118,8 @@ Per peer P: read `reply_<P>.txt` (**empty → exit 2**) and `receipt_<P>.json`
 fields present; **gate** `sha256(reply_<P>.txt) == receipt.reply_sha256` (else
 exit 2). `manifest.sources[P].sha256` is the receipt's `reply_sha256`.
 
-For each receiver R write `cross_<R>.md` (refuse overwrite without `--overwrite`):
+For each receiver R write `cross_<R>.md` in the artifact directory (refuse
+overwrite without `--overwrite`):
 
 ```
 <exact preamble line>

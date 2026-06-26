@@ -141,14 +141,18 @@ The coordinator will:
 2. Create a relay directory outside the project and derive `FED_NS` from it.
 3. Run `FED_NS="$(basename "$RELAY")" scripts/fed_sessions.sh` to create/reuse
    peer tmux sessions scoped to that federation thread.
-4. Write one brief per peer in the relay directory.
+4. For each round, create a per-round artifact directory such as
+   `$ROUND="$RELAY/round_1"` and write that round's briefs there.
 5. Send all briefs before reading any answer.
-6. Write `round_manifest.json`, then read each peer by nonce from
-   transcript/state with `fed_read.py --receipt-dir "$RELAY"`.
-7. Generate receipt-bound cross briefs with `fed_cross.py generate`, verify them
-   with `fed_cross.py verify`, and run `fed_round_check.py`.
-8. Cross-show each peer the other peers' verified verbatim replies and
-   confidence by default. Cross-show replies must pass
+6. Write `$ROUND/round_manifest.json`, then read each peer by nonce from
+   transcript/state with `fed_read.py --receipt-dir "$ROUND"`.
+7. Generate receipt-bound cross briefs with
+   `fed_cross.py generate --relay "$RELAY" --round N`, verify them with
+   `fed_cross.py verify --relay "$RELAY" --round N`, and run
+   `fed_round_check.py --relay "$RELAY" --round N`.
+8. Send each generated `$ROUND/cross_<peer>.md` with `fed_send.sh` before
+   reading any cross reply. Cross-show each peer the other peers' verified
+   verbatim replies and confidence by default. Cross-show replies must pass
    `fed_read.py --no-tool-window --require-no-tool-audit`.
 9. Collect the cross-pollinated replies, including revised confidence.
 10. Run another complete round when convergence is not high enough for the
@@ -337,10 +341,11 @@ install.sh         install into Claude, Codex, and Hermes skill homes
   yolo-preserving cross-show replies: the nonce window must contain no
   structured tool events, and the first non-empty reply line must be exactly
   `NO_TOOL_AUDIT: no tools used`.
-- `fed_cross.py verify` re-extracts each receipt from the recorded source and
+- `fed_cross.py verify [--round N]` re-extracts each receipt from the recorded source and
   reconstructs cross briefs byte-for-byte, so un-attributed edits fail.
-- `fed_round_check.py` compares `round_manifest.json` to `cross_manifest.json`
-  so a sent peer cannot silently disappear from synthesis.
+- `fed_round_check.py [--round N]` compares a round's `round_manifest.json` to
+  its `cross_manifest.json` so a sent peer cannot silently disappear from
+  synthesis.
 - `fed_read.py hermes` searches `${HERMES_HOME:-~/.hermes}/state.db` and profile
   databases for the nonce.
 - `fed_read.py hermes` can read a remote peer DB over SSH with

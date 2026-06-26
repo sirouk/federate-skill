@@ -4,15 +4,16 @@ Status: SEALED CONTRACT (Fix D). The executable oracle is
 `scripts/tests/test_fed_round_check.py`; this file is the human-readable
 contract.
 
-`fed_round_check.py --relay <DIR>` verifies that every peer nonce sent in a
-federation phase is accounted for before synthesis. It closes the
+`fed_round_check.py --relay <DIR> [--round N]` verifies that every peer nonce
+sent in a federation phase is accounted for before synthesis. It closes the
 orchestrator-level omission gap where a coordinator could drop an inconvenient
 peer from the cross-show and still claim convergence.
 
 ## Inputs
 
 `$RELAY/round_manifest.json` is written once immediately after independent
-sends and before reads/cross generation:
+sends and before reads/cross generation. If `--round N` is used, the artifact
+directory is `$RELAY/round_N`, so the path is `$RELAY/round_N/round_manifest.json`:
 
 ```json
 {
@@ -31,7 +32,8 @@ sends and before reads/cross generation:
 ```
 
 `$RELAY/cross_manifest.json` is produced by `fed_cross.py generate` and may
-also include a top-level `unavailable` list:
+also include a top-level `unavailable` list. If `--round N` is used, the path
+is `$RELAY/round_N/cross_manifest.json`:
 
 ```json
 {
@@ -46,7 +48,7 @@ also include a top-level `unavailable` list:
 }
 ```
 
-`evidence_path` may be absolute or relative to the relay directory. It must
+`evidence_path` may be absolute or relative to the artifact directory. It must
 exist and be non-empty.
 
 ## Check

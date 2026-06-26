@@ -30,6 +30,15 @@ def resolve_relay_path(relay, value):
     return path
 
 
+def artifact_dir(relay, round_value=None):
+    if not round_value:
+        return relay
+    round_text = str(round_value)
+    if not round_text.isdigit() or int(round_text) < 1:
+        raise UsageError("--round must be a positive integer")
+    return relay / f"round_{round_text}"
+
+
 def load_manifests(relay):
     round_path = relay / "round_manifest.json"
     cross_path = relay / "cross_manifest.json"
@@ -188,8 +197,9 @@ def check_round(relay):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--relay", required=True)
+    ap.add_argument("--round")
     args = ap.parse_args()
-    relay = Path(args.relay).expanduser()
+    relay = artifact_dir(Path(args.relay).expanduser(), args.round)
     if not relay.is_dir():
         sys.stderr.write(f"ERROR: relay directory not found: {relay}\n")
         sys.exit(2)
