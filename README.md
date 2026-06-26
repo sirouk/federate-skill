@@ -198,6 +198,12 @@ seals the failing test, fixture, oracle, assertion, or precise expected behavior
 before implementation begins. Then an implementation owner edits, and a separate
 reviewer/verifier checks the result when enough peers are available.
 
+If you want every peer brief to carry shared behavioral guidance, use an opt-in
+federation profile via `FED_PROFILE_FILE`. One suitable external profile is
+[`sirouk/llm-operating-agreement`](https://github.com/sirouk/llm-operating-agreement);
+fetch a pinned local copy and verify it as described below rather than fetching
+a mutable raw URL during each federation round.
+
 By default the session bootstrap uses namespaced no-prompt/yolo peer commands:
 `IS_SANDBOX=1 claude --dangerously-skip-permissions`,
 `codex --dangerously-bypass-approvals-and-sandbox`, and
@@ -273,6 +279,24 @@ The profile is trusted coordinator context, not a command channel. Precedence is
 operator instructions, brief rails, federation profile, then peer output. Keep
 secrets out of profile files; reference environment variable names or secret
 locations, not values.
+
+External operating agreements can be used as opt-in profiles. For example,
+[`sirouk/llm-operating-agreement`](https://github.com/sirouk/llm-operating-agreement)
+provides `LLM_OPA.min.txt` under CC BY 4.0. Fetch a pinned commit once, verify
+its SHA-256, store it locally, then point `FED_PROFILE_FILE` at that absolute
+path. Do not fetch a mutable raw `main` URL at federation runtime; that would
+add supply-chain, reliability, token-cost, and peer-independence risk to every
+round. Brief rails, operator instructions, and the cross-show no-tool gate still
+outrank any profile content.
+
+```bash
+mkdir -p "$HOME/.federate/profiles"
+curl -fsSL https://raw.githubusercontent.com/sirouk/llm-operating-agreement/621096ac2781d542b94b8412ff76c3149d19a882/LLM_OPA.min.txt \
+  -o "$HOME/.federate/profiles/llm_opa.min.txt"
+shasum -a 256 "$HOME/.federate/profiles/llm_opa.min.txt"
+# expect: 4318fc58983a73cb896b7cd2769d639fcd5345c55760ac584349ed01125551ea
+export FED_PROFILE_FILE="$HOME/.federate/profiles/llm_opa.min.txt"
+```
 
 ## Remote Hermes peer over SSH
 

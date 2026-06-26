@@ -169,7 +169,10 @@ Runtime controls:
   it into every independent and cross brief after the top nonce and before the
   brief body as trusted coordinator context. Missing, unreadable, relative-path,
   or private-key-looking profile files fail before paste. The profile never
-  overrides operator instructions or brief rails.
+  overrides operator instructions or brief rails. External operating agreements
+  such as `sirouk/llm-operating-agreement` can be used by fetching a pinned,
+  SHA-verified local copy and pointing `FED_PROFILE_FILE` at it. Do not fetch
+  mutable raw URLs at federation runtime.
 - Use explicit `FED_*_CMD` overrides only when you intentionally want prompt mode
   or a custom model/profile. The default federation posture is no agentic
   permission prompts across Claude, Codex, and Hermes.
